@@ -1,0 +1,16 @@
+[build-system]
+requires = ["setuptools>=61"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "phare_load"
+version = "0.1.0"
+description = "Estimate computational and memory load of global magnetosphere PIC runs with PHARE (uniform vs AMR)."
+requires-python = ">=3.9"
+dependencies = ["numpy", "matplotlib"]
+
+[project.scripts]
+phare-load = "phare_load.cli:main"
+
+[tool.setuptools.packages.find]
+where = ["src"]
