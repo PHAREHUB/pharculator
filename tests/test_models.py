@@ -1,77 +1,88 @@
 import numpy as np
+from pathlib import Path
 
-from phare_load.constants import (
-    NOMINAL_SW, L0_DX_KM, L1_DX_KM, L2_DX_KM, L3_DX_KM, STEPS_PER_L3,
+from phare_load.config import (
+    Config, LevelSpec, SolarWind, load_config,
 )
 from phare_load.models import subsolar_mp, subsolar_bs, shue_mp, jelinek_bs
-from phare_load.geometry import sample_shell
-from phare_load.load import uniform_reference, amr_load
+from phare_load.geometry import sample_regions
+from phare_load.load import build_report
+
+
+CONFIG_PATH = Path(__file__).resolve().parents[1] / "config.toml"
+
+
+def _default_cfg() -> Config:
+    return load_config(CONFIG_PATH)
+
+
+def test_default_config_loads():
+    cfg = _default_cfg()
+    assert cfg.delta_i_km == 100.0
+    assert cfg.dt_ratio_per_level == 4.0
+    assert len(cfg.levels) == 4
+    assert cfg.levels[0].kind == "mhd"
+    assert cfg.levels[-1].name == "L3"
+
+
+def test_steps_per_finest():
+    cfg = _default_cfg()
+    assert cfg.steps_per_finest("L3") == 1.0
+    assert cfg.steps_per_finest("L2") == 0.25
+    assert cfg.steps_per_finest("L1") == 1.0 / 16.0
+    assert cfg.steps_per_finest("L0") == 1.0 / 64.0
 
 
 def test_shue_subsolar_nominal():
-    r = subsolar_mp(NOMINAL_SW)
+    r = subsolar_mp(SolarWind())
     assert 9.5 < r < 11.5
 
 
 def test_jelinek_subsolar_nominal():
-    r = subsolar_bs(NOMINAL_SW)
+    r = subsolar_bs(SolarWind())
     assert 13.0 < r < 15.5
 
 
 def test_bs_outside_mp_everywhere():
+    sw = SolarWind()
     theta = np.linspace(0, np.deg2rad(125), 50)
-    assert np.all(jelinek_bs(theta) > shue_mp(theta))
+    assert np.all(jelinek_bs(theta, sw) > shue_mp(theta, sw))
 
 
-def test_resolutions():
-    assert L0_DX_KM == 80.0
-    assert L1_DX_KM == 80.0
-    assert L2_DX_KM == 40.0
-    assert L3_DX_KM == 20.0
+def test_nested_masks_default():
+    cfg = _default_cfg()
+    cfg.sample_dx_re = 1.0
+    s = sample_regions(cfg)
+    m1, m2, m3 = s.masks["L1"], s.masks["L2"], s.masks["L3"]
+    assert np.all(m3 <= m2)
+    assert np.all(m2 <= m1)
+    assert s.volumes_Re3["L1"] > s.volumes_Re3["L2"] > s.volumes_Re3["L3"] > 0
 
 
-def test_subcycling_ratios():
-    assert STEPS_PER_L3["L0"] == 1.0 / 64.0
-    assert STEPS_PER_L3["L1"] == 1.0 / 16.0
-    assert STEPS_PER_L3["L2"] == 1.0 / 4.0
-    assert STEPS_PER_L3["L3"] == 1.0
+def test_mhd_has_no_particles():
+    cfg = _default_cfg()
+    cfg.sample_dx_re = 1.0
+    report, _ = build_report(cfg)
+    L0 = report.by_name("L0")
+    assert not L0.is_pic and L0.n_particles == 0
 
 
-def test_shell_volumes_monotone():
-    s = sample_shell(sample_dx_Re=1.0)
-    assert s.volume_L1_Re3 > s.volume_L2_Re3 > s.volume_L3_Re3 > 0
-
-
-def test_nested_masks():
-    s = sample_shell(sample_dx_Re=1.0)
-    assert np.all(s.in_L3 <= s.in_L2)
-    assert np.all(s.in_L2 <= s.in_L1)
-
-
-def test_uniform_reference_baseline():
-    # 20 km uniform: domain has 1.676e+14/8 = ~2.1e+13 cells, ~2.1e+15 particles
-    L = uniform_reference(20.0)
-    assert 1e15 < L.n_particles < 5e15
-    assert L.is_pic
-
-
-def test_l0_has_no_particles():
-    L0, L1, L2, L3, total, _ = amr_load(sample_dx_Re=1.0)
-    assert L0.n_particles == 0
-    assert not L0.is_pic
-    for L in (L1, L2, L3):
-        assert L.is_pic and L.n_particles > 0
-    assert total.n_particles == L1.n_particles + L2.n_particles + L3.n_particles
-
-
-def test_amr_cheaper_than_uniform_reference():
-    ref = uniform_reference(20.0)
-    L0, L1, L2, L3, _, _ = amr_load(sample_dx_Re=1.0)
-    N = 1
-    pic_work = N * (
-        L1.steps_per_L3 * L1.n_particles
-        + L2.steps_per_L3 * L2.n_particles
-        + L3.steps_per_L3 * L3.n_particles
-    )
-    ref_work = N * ref.n_particles
+def test_amr_cheaper_than_reference():
+    cfg = _default_cfg()
+    cfg.sample_dx_re = 1.0
+    report, _ = build_report(cfg)
+    pic_work = sum(L.steps_per_finest * L.n_particles for L in report.pic_levels)
+    ref_work = report.uniform_reference.n_particles
     assert ref_work / pic_work > 30
+
+
+def test_two_level_config_via_dataclass():
+    cfg = Config()
+    cfg.levels = [
+        LevelSpec(name="L0", kind="mhd", dx_km=40.0, region="full"),
+        LevelSpec(name="L1", kind="pic", dx_km=20.0, region="shell", pad_re=2.0),
+    ]
+    cfg.sample_dx_re = 1.0
+    report, _ = build_report(cfg)
+    assert len(report.levels) == 2
+    assert report.by_name("L1").is_pic

@@ -1,0 +1,66 @@
+# PHARE load-estimator configuration.
+# All fields shown have defaults if omitted; only [[levels]] is required.
+
+delta_i_km = 100.0          # ion inertial length, sets the resolution unit
+re_km = 6371.2
+
+target_hours = 3.0          # physical run duration
+dt_finest_s = 1e-3          # dt of the finest level (and of the uniform reference)
+dt_ratio_per_level = 4.0    # dt of level n = dt_ratio * dt of level n+1
+
+dayside_only = true         # PIC AMR only in the +x_GSE half-space
+sample_dx_re = 0.5          # probe-grid resolution for volume integration
+reference_dx_km = 20.0      # uniform PIC reference run resolution
+
+[particle]
+ppc = 100
+bytes_per_particle = 56     # 3 pos + 3 vel + 1 charge, all float64
+sec_per_particle_per_step = 10e-9   # single-thread cost model
+
+[domain]
+# User convention: -x toward the Sun. All values in Earth radii.
+x_min = -30.0
+x_max = 150.0
+y_min = -30.0
+y_max = 30.0
+z_min = -30.0
+z_max = 30.0
+
+[solar_wind]
+n_cm3 = 5.0
+v_kms = 400.0
+bz_nt = 0.0
+
+# Levels are listed coarsest first; the last entry is the finest and
+# carries the base dt.
+#
+# region = "full"  : whole domain
+# region = "shell" : sheath shell, requires pad_re (Re inside MP, outside BS)
+# region = "band"  : ±band_re around MP and BS surfaces
+
+[[levels]]
+name = "L0"
+kind = "mhd"
+dx_km = 80.0
+region = "full"
+
+[[levels]]
+name = "L1"
+kind = "pic"
+dx_km = 80.0
+region = "shell"
+pad_re = 3.0
+
+[[levels]]
+name = "L2"
+kind = "pic"
+dx_km = 40.0
+region = "band"
+band_re = 1.5
+
+[[levels]]
+name = "L3"
+kind = "pic"
+dx_km = 20.0
+region = "band"
+band_re = 0.5

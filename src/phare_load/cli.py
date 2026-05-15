@@ -1,17 +1,19 @@
-"""Command-line entry point: prints the load comparison and writes the figure."""
+"""Command-line entry point: takes a TOML config, prints the comparison and
+writes the figure.
+"""
 
 from __future__ import annotations
 
 import argparse
+from pathlib import Path
 
-from .constants import (
-    SolarWind, NOMINAL_SW, BYTES_PER_PARTICLE, PPC, DELTA_I_KM,
-    L0_DX_KM, L1_DX_KM, L2_DX_KM, L3_DX_KM, REFERENCE_UNIFORM_DX_KM,
-    SEC_PER_PARTICLE_PER_STEP, DT_SECONDS, TARGET_RUN_HOURS,
-)
+from .config import load_config, Config
 from .load import build_report
-from .models import subsolar_mp, subsolar_bs, pdyn_nPa
+from .models import subsolar_mp, subsolar_bs
 from .plotting import make_figure
+
+
+DEFAULT_CONFIG = Path(__file__).resolve().parent.parent.parent / "config.toml"
 
 
 def _fmt_bytes(n: float) -> str:
@@ -38,133 +40,128 @@ def _fmt_time(seconds: float) -> str:
     return f"{seconds/86400/365:.2f} yr"
 
 
+def _summary(cfg: Config) -> None:
+    sw = cfg.solar_wind
+    print("=" * 80)
+    print(f"Config: delta_i = {cfg.delta_i_km:.0f} km, "
+          f"PPC = {cfg.ppc}, particle = {cfg.bytes_per_particle} B")
+    print(f"Solar wind: n = {sw.n_cm3:.2f} cm^-3, V = {sw.v_kms:.1f} km/s, "
+          f"Bz = {sw.bz_nt:+.1f} nT  →  Pd = {sw.Pdyn_nPa:.3f} nPa")
+    print(f"Domain: x in [{cfg.domain.x_min},{cfg.domain.x_max}] Re, "
+          f"y,z in [{cfg.domain.y_min},{cfg.domain.y_max}] Re")
+    print(f"Dayside-only PIC: {cfg.dayside_only}")
+    print(f"Run target: {cfg.target_hours} h physical, "
+          f"dt_finest = {cfg.dt_finest_s} s  →  N = {cfg.n_steps_target:,} steps")
+    print(f"dt ratio per level = {cfg.dt_ratio_per_level}")
+    print(f"Reference uniform PIC dx = {cfg.reference_dx_km} km  "
+          f"({cfg.reference_dx_km/cfg.delta_i_km:.2f} delta_i)")
+    print()
+    print("Levels (coarsest → finest):")
+    for L in cfg.levels:
+        region = L.region
+        if region == "shell":
+            region = f"shell  pad={L.pad_re:.1f} Re"
+        elif region == "band":
+            region = f"band   ±{L.band_re:.1f} Re of MP and BS"
+        else:
+            region = "full domain"
+        print(f"  {L.name:<5} {L.kind.upper():<3}  dx = {L.dx_km:>5.1f} km "
+              f"({L.dx_km/cfg.delta_i_km:>4.2f} di)   region: {region}   "
+              f"steps/finest = {cfg.steps_per_finest(L.name):.4g}")
+    print("=" * 80)
+
+
 def main(argv=None):
     p = argparse.ArgumentParser(description="PHARE AMR load estimator.")
-    p.add_argument("--n", type=float, default=NOMINAL_SW.n_cm3)
-    p.add_argument("--V", type=float, default=NOMINAL_SW.V_kms)
-    p.add_argument("--Bz", type=float, default=NOMINAL_SW.Bz_nT)
-    p.add_argument("--l1-pad-Re", type=float, default=3.0)
-    p.add_argument("--l2-band-Re", type=float, default=1.5)
-    p.add_argument("--l3-band-Re", type=float, default=0.5)
-    p.add_argument("--sample-dx-Re", type=float, default=0.5)
-    p.add_argument("--reference-dx-km", type=float, default=REFERENCE_UNIFORM_DX_KM)
-    p.add_argument("--full-magnetosphere", action="store_true",
-                   help="Include the nightside in the AMR PIC region "
-                        "(default: dayside only)")
+    p.add_argument("--config", default=str(DEFAULT_CONFIG),
+                   help="Path to a TOML config file (default: bundled config.toml).")
     p.add_argument("--out", default="outputs/load_estimate.png")
     args = p.parse_args(argv)
 
-    sw = SolarWind(n_cm3=args.n, V_kms=args.V, Bz_nT=args.Bz)
-    report, shell = build_report(
-        sw=sw,
-        l1_pad_Re=args.l1_pad_Re,
-        l2_band_Re=args.l2_band_Re,
-        l3_band_Re=args.l3_band_Re,
-        sample_dx_Re=args.sample_dx_Re,
-        reference_dx_km=args.reference_dx_km,
-        dayside_only=not args.full_magnetosphere,
-    )
+    cfg = load_config(args.config)
+    print(f"Loaded config: {args.config}")
+    _summary(cfg)
 
-    print("=" * 80)
-    print("Solar wind:")
-    print(f"  n   = {sw.n_cm3:.2f} cm^-3")
-    print(f"  V   = {sw.V_kms:.1f} km/s")
-    print(f"  Bz  = {sw.Bz_nT:+.1f} nT")
-    print(f"  Pd  = {pdyn_nPa(sw):.3f} nPa")
-    print()
-    def _frac(dx):
-        return f"{dx/DELTA_I_KM:.2f} di"
-    print(f"Ion inertial length delta_i = {DELTA_I_KM:.0f} km")
-    print(f"  L0 = {L0_DX_KM:>4.0f} km = {_frac(L0_DX_KM)}  (MHD, full domain;        1 step / 64 L3)")
-    print(f"  L1 = {L1_DX_KM:>4.0f} km = {_frac(L1_DX_KM)}  (PIC, sheath ±{args.l1_pad_Re:.1f} Re;     1 step / 16 L3)")
-    print(f"  L2 = {L2_DX_KM:>4.0f} km = {_frac(L2_DX_KM)}  (PIC, ±{args.l2_band_Re:.1f} Re of MP+BS;  1 step /  4 L3)")
-    print(f"  L3 = {L3_DX_KM:>4.0f} km = {_frac(L3_DX_KM)}  (PIC, ±{args.l3_band_Re:.1f} Re of MP+BS;  base dt)")
-    print(f"  reference = {args.reference_dx_km:.0f} km PIC uniform "
-          f"({_frac(args.reference_dx_km)}, full domain, same dt as L3)")
-    print()
-    print("Model standoff:")
-    print(f"  Shue magnetopause subsolar : {subsolar_mp(sw):.2f} Re")
-    print(f"  Jelinek bow shock subsolar : {subsolar_bs(sw):.2f} Re")
-    print()
-    print(f"PIC volumes  (Re^3): L1 = {report.L1.volume_Re3:>10.1f}")
-    print(f"                     L2 = {report.L2.volume_Re3:>10.1f}   "
-          f"({100 * report.L2.volume_Re3 / report.L1.volume_Re3:.1f}% of L1)")
-    print(f"                     L3 = {report.L3.volume_Re3:>10.1f}   "
-          f"({100 * report.L3.volume_Re3 / report.L1.volume_Re3:.1f}% of L1)")
-    print()
-    print(f"Run target: {TARGET_RUN_HOURS} h of physical time, "
-          f"dt_L3 = {DT_SECONDS} s  →  N = {report.n_steps_target:,} L3 steps")
-    print(f"Particle = {BYTES_PER_PARTICLE} B, PPC = {PPC}, "
-          f"cost = {SEC_PER_PARTICLE_PER_STEP*1e9:.0f} ns/particle/step")
-    print("=" * 80)
+    report, sample = build_report(cfg)
 
-    fmt = "{:>17}  {:>9}  {:>10}  {:>16}  {:>16}  {:>12}  {:>14}"
-    print(fmt.format("level", "dx [km]", "steps/L3", "N_cells", "N_particles",
+    print(f"Shue MP subsolar : {subsolar_mp(cfg.solar_wind):.2f} Re")
+    print(f"Jelinek BS subsolar : {subsolar_bs(cfg.solar_wind):.2f} Re")
+    print()
+    print("Per-level volumes (PIC only):")
+    for L in report.pic_levels:
+        v_l1 = report.pic_levels[0].volume_Re3 if report.pic_levels else 1.0
+        frac = 100.0 * L.volume_Re3 / max(v_l1, 1e-30)
+        print(f"  {L.name}: {L.volume_Re3:>10.1f} Re^3  ({frac:5.1f}% of {report.pic_levels[0].name})")
+    print()
+
+    fmt = "{:>20}  {:>9}  {:>10}  {:>16}  {:>16}  {:>12}  {:>14}"
+    print(fmt.format("level", "dx [km]", "steps/fin", "N_cells", "N_particles",
                      "RAM", "t/own step"))
     print("-" * 116)
-    rows = [report.L0, report.L1, report.L2, report.L3,
-            report.amr_total, report.uniform_reference]
+    rows = list(report.levels) + [report.amr_total, report.uniform_reference]
     for L in rows:
         dx = "—" if L.dx_km != L.dx_km else f"{L.dx_km:.1f}"
-        ram_str = _fmt_bytes(L.ram_bytes)
-        t_str = _fmt_time(L.sec_per_step)
         print(fmt.format(
             L.name, dx,
-            f"{L.steps_per_L3:.4g}",
+            f"{L.steps_per_finest:.4g}",
             f"{L.n_cells:.3e}",
             f"{L.n_particles:.3e}" if L.is_pic else "      0",
-            ram_str, t_str,
+            _fmt_bytes(L.ram_bytes),
+            _fmt_time(L.sec_per_step),
         ))
     print("-" * 116)
 
-    L1, L2, L3 = report.L1, report.L2, report.L3
-    ref = report.uniform_reference
     N = report.n_steps_target
+    pic = report.pic_levels
+    ref = report.uniform_reference
 
-    print()
-    print(f"=== Over N = {N:,} L3 steps (= {N:,} uniform steps, same dt) ===")
-    print()
-    print("Per-level advances and particle-step work:")
-    for L in (report.L0, L1, L2, L3):
-        n_steps = N * L.steps_per_L3
-        work = n_steps * L.n_particles
-        tag = "MHD, not counted" if not L.is_pic else f"work = {work:.3e} part·steps"
-        print(f"  {L.name:<10} : {n_steps:>14,.0f} advances    {tag}")
-
-    pic_step_count = N * (L1.steps_per_L3 + L2.steps_per_L3 + L3.steps_per_L3)
-    pic_work = N * (L1.steps_per_L3 * L1.n_particles
-                    + L2.steps_per_L3 * L2.n_particles
-                    + L3.steps_per_L3 * L3.n_particles)
-    ref_steps = N
+    pic_step_count = N * sum(L.steps_per_finest for L in pic)
+    pic_work = N * sum(L.steps_per_finest * L.n_particles for L in pic)
     ref_work = N * ref.n_particles
 
     print()
-    print("Totals (PIC only — L0 has no particles):")
+    print(f"=== Over N = {N:,} finest-level steps ===")
+    print()
+    print("Per-level advances and particle·step work:")
+    for L in report.levels:
+        n_steps = N * L.steps_per_finest
+        tag = "MHD, not counted" if not L.is_pic else (
+            f"work = {n_steps * L.n_particles:.3e} part·steps")
+        print(f"  {L.name:<6} : {n_steps:>14,.0f} advances    {tag}")
+    print()
+    print("Totals (PIC only):")
     print(f"  AMR PIC step count   : {pic_step_count:>16,.0f}")
-    print(f"  Uniform step count   : {ref_steps:>16,.0f}")
-    print(f"  AMR / uniform        : {pic_step_count / ref_steps:.3f} ×")
+    print(f"  Uniform step count   : {N:>16,.0f}")
+    print(f"  AMR / uniform        : {pic_step_count / N:.3f} ×")
     print()
     print(f"  AMR particle·steps   : {pic_work:.3e}")
     print(f"  Uniform particle·steps: {ref_work:.3e}")
     print(f"  uniform / AMR        : {ref_work / pic_work:.2f} ×  (AMR cheaper)")
     print()
-    print("AMR per-L3-step work breakdown (which level dominates the cost):")
-    for L in (L1, L2, L3):
-        w = L.steps_per_L3 * L.n_particles
-        frac = 100 * w / (pic_work / N)
-        print(f"  {L.name}: {w:.3e}  ({frac:5.2f}%)")
+    if pic:
+        print("AMR per-finest-step work breakdown:")
+        per_step_total = pic_work / N
+        for L in pic:
+            w = L.steps_per_finest * L.n_particles
+            frac = 100 * w / per_step_total
+            print(f"  {L.name}: {w:.3e}  ({frac:5.2f}%)")
     print()
-    print(f"Wall-time for the {N:,}-L3-step run on N cores "
-          "(particle work only, MHD not counted):")
-    amr_sec = pic_work * SEC_PER_PARTICLE_PER_STEP
-    ref_sec = ref_work * SEC_PER_PARTICLE_PER_STEP
+    amr_sec = pic_work * cfg.sec_per_particle_per_step
+    ref_sec = ref_work * cfg.sec_per_particle_per_step
+    print("CPU-hours (= core-hours, independent of core count):")
+    print(f"  reference uniform : {ref_sec/3600:>14,.0f} CPU·h "
+          f"({ref_sec/3600/1e6:.2f} M CPU·h)")
+    print(f"  AMR (sum PIC)     : {amr_sec/3600:>14,.0f} CPU·h "
+          f"({amr_sec/3600/1e6:.2f} M CPU·h)")
+    print()
+    print("Wall-time on N cores (ideal linear scaling, PIC work only):")
     for ncores in (1, 10_000, 100_000, 1_000_000):
         print(f"  N = {ncores:>9}  cores : "
               f"ref {_fmt_time(ref_sec/ncores):>14}   |   "
               f"AMR {_fmt_time(amr_sec/ncores):>14}")
     print()
 
-    out = make_figure(report, shell, sw=sw, out_path=args.out)
+    out = make_figure(report, sample, out_path=args.out)
     print(f"Figure written to: {out}")
     return 0
 

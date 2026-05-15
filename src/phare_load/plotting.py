@@ -1,18 +1,14 @@
-"""Meridional + equatorial plots of the AMR levels.
-
-User axis convention: -x toward the Sun. Plots use the user frame.
-L0 fills the whole panel as a very light tint (MHD base level). L1 (sheath
-shell) and L2 (boundary bands) are progressively darker.
-"""
+"""Meridional + equatorial plots of the AMR levels."""
 
 from __future__ import annotations
 
 import numpy as np
 import matplotlib.pyplot as plt
 from matplotlib.patches import Circle, Rectangle
+from matplotlib import colors as mcolors
 
-from .constants import SolarWind, NOMINAL_SW
-from .geometry import DOMAIN_USER, ShellSample
+from .config import Config
+from .geometry import RegionSample
 from .models import shue_mp, jelinek_bs
 from .load import LoadReport
 
@@ -37,70 +33,77 @@ def _model_curve_user(model_fn, sw, xlim, ylim, n=2000):
     return x_full, y_full
 
 
-def _slice_masks(shell: ShellSample, axis: str):
+def _slice_index(arr, axis):
     if axis == "xz":
-        iy = np.argmin(np.abs(shell.y[0, :, 0]))
-        X = shell.x_user[:, iy, :]
-        V = shell.z[:, iy, :]
-        m1 = shell.in_L1[:, iy, :]
-        m2 = shell.in_L2[:, iy, :]
-        m3 = shell.in_L3[:, iy, :]
+        return np.argmin(np.abs(arr.y[0, :, 0])), "iy"
     elif axis == "xy":
-        iz = np.argmin(np.abs(shell.z[0, 0, :]))
-        X = shell.x_user[:, :, iz]
-        V = shell.y[:, :, iz]
-        m1 = shell.in_L1[:, :, iz]
-        m2 = shell.in_L2[:, :, iz]
-        m3 = shell.in_L3[:, :, iz]
-    else:
-        raise ValueError(axis)
-    return X, V, m1, m2, m3
+        return np.argmin(np.abs(arr.z[0, 0, :])), "iz"
+    raise ValueError(axis)
 
 
-def _shade_levels(ax, shell: ShellSample, axis: str):
-    d = DOMAIN_USER
+def _slice(arr3d, axis, idx):
+    if axis == "xz":
+        return arr3d[:, idx, :]
+    return arr3d[:, :, idx]
+
+
+def _level_colors(n: int):
+    cmap = plt.get_cmap("Blues")
+    # Pick progressively darker shades, skipping the very light end.
+    return [cmap(0.30 + 0.65 * i / max(n - 1, 1)) for i in range(n)]
+
+
+def _shade_levels(ax, sample: RegionSample, report: LoadReport, axis: str):
+    d = report.cfg.domain
     ax.add_patch(Rectangle(
-        (d["x_min"], -30 if axis == "xz" else d["y_min"]),
-        d["x_max"] - d["x_min"],
-        60.0,
+        (d.x_min, d.z_min if axis == "xz" else d.y_min),
+        d.x_max - d.x_min,
+        (d.z_max - d.z_min) if axis == "xz" else (d.y_max - d.y_min),
         facecolor="#f0f4f8", edgecolor="none", zorder=0,
     ))
 
-    X, V, m1, m2, m3 = _slice_masks(shell, axis)
-    lvl = np.zeros_like(m1, dtype=int)
-    lvl[m1] = 1
-    lvl[m2] = 2
-    lvl[m3] = 3
+    pic_specs = [L for L in report.cfg.levels if L.kind == "pic"]
+    if not pic_specs:
+        return
+    idx, _ = _slice_index(sample, axis)
+    X = _slice(sample.x_user, axis, idx)
+    V = _slice(sample.z if axis == "xz" else sample.y, axis, idx)
+    # Stack masks: cell value = highest level index that contains it.
+    lvl = np.zeros_like(X, dtype=int)
+    for i, spec in enumerate(pic_specs, start=1):
+        m = _slice(sample.masks[spec.name], axis, idx)
+        lvl[m] = i
+    colors = _level_colors(len(pic_specs))
     ax.contourf(
         X, V, lvl.astype(float),
-        levels=[0.5, 1.5, 2.5, 3.5],
-        colors=["#c6dbef", "#4292c6", "#08306b"],   # L1, L2, L3
-        alpha=0.8,
-        zorder=1,
+        levels=[i - 0.5 for i in range(1, len(pic_specs) + 2)],
+        colors=colors, alpha=0.85, zorder=1,
     )
+    return colors
 
 
-def _draw_panel(ax, axis: str, shell: ShellSample, report: LoadReport, sw: SolarWind):
-    d = DOMAIN_USER
-    ax.set_xlim(d["x_min"], d["x_max"])
+def _draw_panel(ax, axis: str, sample: RegionSample, report: LoadReport):
+    cfg = report.cfg
+    d = cfg.domain
+    ax.set_xlim(d.x_min, d.x_max)
     if axis == "xz":
-        ax.set_ylim(d["z_min"], d["z_max"])
+        ax.set_ylim(d.z_min, d.z_max)
         ax.set_ylabel("Z [Re]")
         ax.set_title("Meridional slice (Y=0)")
     else:
-        ax.set_ylim(d["y_min"], d["y_max"])
+        ax.set_ylim(d.y_min, d.y_max)
         ax.set_ylabel("Y [Re]")
         ax.set_title("Equatorial slice (Z=0)")
     ax.set_xlabel("X [Re]    (Sun ←)")
     ax.set_aspect("equal", adjustable="box")
     ax.grid(True, linestyle=":", alpha=0.4)
 
-    _shade_levels(ax, shell, axis)
+    _shade_levels(ax, sample, report, axis)
 
     xlim = ax.get_xlim()
     ylim = max(abs(ax.get_ylim()[0]), abs(ax.get_ylim()[1]))
-    xmp, ymp = _model_curve_user(shue_mp, sw, xlim, ylim)
-    xbs, ybs = _model_curve_user(jelinek_bs, sw, xlim, ylim)
+    xmp, ymp = _model_curve_user(shue_mp, cfg.solar_wind, xlim, ylim)
+    xbs, ybs = _model_curve_user(jelinek_bs, cfg.solar_wind, xlim, ylim)
     ax.plot(xmp, ymp, color="#b30000", lw=1.6, label="Magnetopause (Shue 1998)")
     ax.plot(xbs, ybs, color="#08306b", lw=1.6, label="Bow shock (Jelínek 2012)")
 
@@ -109,19 +112,17 @@ def _draw_panel(ax, axis: str, shell: ShellSample, report: LoadReport, sw: Solar
     ax.annotate("Earth", (0, 0), textcoords="offset points", xytext=(6, 6),
                 fontsize=8, color="k")
 
-    L0, L1, L2, L3 = report.L0, report.L1, report.L2, report.L3
+    lines = []
+    for L in report.levels:
+        if L.is_pic:
+            lines.append(f"{L.name} ({L.dx_km:>4.0f} km, PIC): "
+                         f"N = {L.n_particles:.2e}")
+        else:
+            lines.append(f"{L.name} ({L.dx_km:>4.0f} km, MHD): no particles")
+    lines.append(f"Σ AMR PIC:           N = {report.amr_total.n_particles:.2e}")
     ref = report.uniform_reference
-    txt = (
-        f"L0 ({L0.dx_km:.0f} km, MHD, full box):    no particles\n"
-        f"L1 ({L1.dx_km:.0f} km, sheath ±3 Re):     N = {L1.n_particles:.2e}\n"
-        f"L2 ({L2.dx_km:.0f} km, 1.5 Re of MP+BS):  N = {L2.n_particles:.2e}\n"
-        f"L3 ({L3.dx_km:.0f} km, 0.5 Re of MP+BS):  N = {L3.n_particles:.2e}\n"
-        f"Σ AMR PIC:                          N = {report.amr_total.n_particles:.2e}\n"
-        f"Uniform {ref.dx_km:.0f} km PIC (full box):    N = {ref.n_particles:.2e}"
-    )
-    # Annotation lives on the nightside (right half of the user frame) so
-    # it does not cover the MP / BS curves on the dayside.
-    ax.text(0.98, 0.98, txt, transform=ax.transAxes,
+    lines.append(f"uniform {ref.dx_km:.0f} km PIC:   N = {ref.n_particles:.2e}")
+    ax.text(0.98, 0.98, "\n".join(lines), transform=ax.transAxes,
             va="top", ha="right", fontsize=8,
             family="monospace",
             bbox=dict(facecolor="white", alpha=0.85, edgecolor="0.6"))
@@ -129,17 +130,18 @@ def _draw_panel(ax, axis: str, shell: ShellSample, report: LoadReport, sw: Solar
     ax.legend(loc="lower left", fontsize=8)
 
 
-def make_figure(report: LoadReport, shell: ShellSample, sw: SolarWind = NOMINAL_SW,
+def make_figure(report: LoadReport, sample: RegionSample,
                 out_path: str = "outputs/load_estimate.png"):
     fig, axes = plt.subplots(1, 2, figsize=(15, 6))
-    _draw_panel(axes[0], "xz", shell, report, sw)
-    _draw_panel(axes[1], "xy", shell, report, sw)
-    fig.suptitle("PHARE global magnetosphere — MHD (L0) + PIC AMR (L1, L2, L3)",
+    _draw_panel(axes[0], "xz", sample, report)
+    _draw_panel(axes[1], "xy", sample, report)
+    names = ", ".join(L.name for L in report.cfg.levels)
+    fig.suptitle(f"PHARE global magnetosphere — levels: {names}",
                  fontsize=12)
     fig.tight_layout(rect=(0, 0, 1, 0.96))
 
     import os
-    os.makedirs(os.path.dirname(out_path), exist_ok=True)
+    os.makedirs(os.path.dirname(out_path) or ".", exist_ok=True)
     fig.savefig(out_path, dpi=140)
     plt.close(fig)
     return out_path
