@@ -50,8 +50,9 @@ class LoadReport:
 
 def _level_from_spec(spec: LevelSpec, volume_Re3: float, cfg: Config,
                      steps_per_finest: float) -> LevelLoad:
+    dx_km = spec.resolve_dx_km(cfg.delta_i_km)
     volume_km3 = volume_Re3 * (cfg.re_km ** 3)
-    n_cells = volume_km3 / (spec.dx_km ** 3)
+    n_cells = volume_km3 / (dx_km ** 3)
     if spec.kind == "pic":
         n_particles = cfg.ppc * n_cells
         ram = n_particles * cfg.bytes_per_particle
@@ -61,7 +62,7 @@ def _level_from_spec(spec: LevelSpec, volume_Re3: float, cfg: Config,
         ram = 0.0
         t = 0.0
     return LevelLoad(
-        name=spec.name, kind=spec.kind, dx_km=spec.dx_km,
+        name=spec.name, kind=spec.kind, dx_km=dx_km,
         volume_Re3=volume_Re3, n_cells=n_cells,
         n_particles=n_particles, ram_bytes=ram, sec_per_step=t,
         steps_per_finest=steps_per_finest,
@@ -81,10 +82,11 @@ def build_report(cfg: Config) -> tuple[LoadReport, RegionSample]:
             spec, v, cfg, cfg.steps_per_finest(spec.name)))
 
     # Reference uniform PIC over the whole box, sharing dt with the finest level.
+    ref_dx_km = cfg.resolve_reference_dx_km()
     ref_spec = LevelSpec(
-        name=f"uniform_{cfg.reference_dx_km:.0f}km",
+        name=f"uniform_{ref_dx_km:.0f}km",
         kind="pic",
-        dx_km=cfg.reference_dx_km,
+        dx_km=ref_dx_km,
         region="full",
     )
     ref = _level_from_spec(ref_spec, cfg.domain.volume_Re3(), cfg,

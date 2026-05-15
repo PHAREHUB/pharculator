@@ -26,10 +26,18 @@ LevelKind = Literal["mhd", "pic"]
 class LevelSpec:
     name: str
     kind: LevelKind            # "mhd" (no particles) or "pic"
-    dx_km: float
+    # Specify exactly one of dx_km or dx_di (in units of delta_i).
+    dx_km: float | None = None
+    dx_di: float | None = None
     region: RegionKind = "full"
     pad_re: float = 0.0        # for region == "shell"
     band_re: float = 0.0       # for region == "band"
+
+    def resolve_dx_km(self, delta_i_km: float) -> float:
+        if (self.dx_km is None) == (self.dx_di is None):
+            raise ValueError(
+                f"Level {self.name}: specify exactly one of dx_km or dx_di.")
+        return self.dx_km if self.dx_km is not None else self.dx_di * delta_i_km
 
 
 @dataclass
@@ -84,8 +92,16 @@ class Config:
     # point (pressure balance gives r_mp proportional to M_E**(1/3)).
     dipole_strength: float = 1.0
 
-    # reference uniform run
-    reference_dx_km: float = 20.0
+    # reference uniform run: specify exactly one of these.
+    reference_dx_km: float | None = None
+    reference_dx_di: float | None = None
+
+    def resolve_reference_dx_km(self) -> float:
+        if (self.reference_dx_km is None) == (self.reference_dx_di is None):
+            raise ValueError(
+                "Specify exactly one of reference_dx_km or reference_dx_di.")
+        return (self.reference_dx_km if self.reference_dx_km is not None
+                else self.reference_dx_di * self.delta_i_km)
 
     domain: Domain = field(default_factory=Domain)
     solar_wind: SolarWind = field(default_factory=SolarWind)
@@ -114,7 +130,7 @@ def load_config(path: str | Path) -> Config:
     for key in (
         "delta_i_km", "re_km", "target_hours", "dt_finest_s",
         "dt_ratio_per_level", "dayside_only", "sample_dx_re",
-        "reference_dx_km", "dipole_strength",
+        "reference_dx_km", "reference_dx_di", "dipole_strength",
     ):
         if key in raw:
             setattr(cfg, key, raw[key])
@@ -145,6 +161,7 @@ def load_config(path: str | Path) -> Config:
 def _validate(cfg: Config) -> None:
     if not cfg.levels:
         raise ValueError("At least one level is required.")
+    cfg.resolve_reference_dx_km()  # raises if both/neither given
     for L in cfg.levels:
         if L.kind not in ("mhd", "pic"):
             raise ValueError(f"Level {L.name}: kind must be 'mhd' or 'pic'.")
@@ -154,9 +171,10 @@ def _validate(cfg: Config) -> None:
             raise ValueError(f"Level {L.name}: region='shell' needs pad_re > 0.")
         if L.region == "band" and L.band_re <= 0:
             raise ValueError(f"Level {L.name}: region='band' needs band_re > 0.")
+        L.resolve_dx_km(cfg.delta_i_km)  # raises if both/neither given
     # dx must be non-increasing as we descend the level list (coarsest first)
     for prev, nxt in zip(cfg.levels, cfg.levels[1:]):
-        if nxt.dx_km > prev.dx_km:
+        if nxt.resolve_dx_km(cfg.delta_i_km) > prev.resolve_dx_km(cfg.delta_i_km):
             raise ValueError(
-                f"Levels must be listed coarsest first: {nxt.name}"
-                f" (dx={nxt.dx_km}) is finer than {prev.name} (dx={prev.dx_km}).")
+                f"Levels must be listed coarsest first: {nxt.name} is finer "
+                f"than {prev.name}.")

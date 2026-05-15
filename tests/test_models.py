@@ -77,7 +77,7 @@ def test_amr_cheaper_than_reference():
 
 
 def test_two_level_config_via_dataclass():
-    cfg = Config()
+    cfg = Config(reference_dx_km=10.0)
     cfg.levels = [
         LevelSpec(name="L0", kind="mhd", dx_km=40.0, region="full"),
         LevelSpec(name="L1", kind="pic", dx_km=20.0, region="shell", pad_re=2.0),
@@ -86,3 +86,25 @@ def test_two_level_config_via_dataclass():
     report, _ = build_report(cfg)
     assert len(report.levels) == 2
     assert report.by_name("L1").is_pic
+
+
+def test_dx_di_scales_with_delta_i():
+    cfg = Config(reference_dx_di=0.2)
+    cfg.delta_i_km = 50.0
+    cfg.levels = [
+        LevelSpec(name="L1", kind="pic", dx_di=0.4, region="full"),
+    ]
+    cfg.sample_dx_re = 1.0
+    report, _ = build_report(cfg)
+    # 0.4 * 50 = 20 km
+    assert report.by_name("L1").dx_km == 20.0
+    # reference 0.2 * 50 = 10 km
+    assert report.uniform_reference.dx_km == 10.0
+
+
+def test_dx_underspecified_rejected():
+    import pytest
+    cfg = Config(reference_dx_km=10.0)
+    cfg.levels = [LevelSpec(name="L1", kind="pic", region="full")]
+    with pytest.raises(ValueError):
+        build_report(cfg)

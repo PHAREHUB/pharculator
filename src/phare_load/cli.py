@@ -53,11 +53,13 @@ def _summary(cfg: Config) -> None:
     print(f"Run target: {cfg.target_hours} h physical, "
           f"dt_finest = {cfg.dt_finest_s} s  →  N = {cfg.n_steps_target:,} steps")
     print(f"dt ratio per level = {cfg.dt_ratio_per_level}")
-    print(f"Reference uniform PIC dx = {cfg.reference_dx_km} km  "
-          f"({cfg.reference_dx_km/cfg.delta_i_km:.2f} delta_i)")
+    ref_dx_km = cfg.resolve_reference_dx_km()
+    print(f"Reference uniform PIC dx = {ref_dx_km} km  "
+          f"({ref_dx_km/cfg.delta_i_km:.2f} delta_i)")
     print()
     print("Levels (coarsest → finest):")
     for L in cfg.levels:
+        dx_km = L.resolve_dx_km(cfg.delta_i_km)
         region = L.region
         if region == "shell":
             region = f"shell  pad={L.pad_re:.1f} Re"
@@ -65,8 +67,8 @@ def _summary(cfg: Config) -> None:
             region = f"band   ±{L.band_re:.1f} Re of MP and BS"
         else:
             region = "full domain"
-        print(f"  {L.name:<5} {L.kind.upper():<3}  dx = {L.dx_km:>5.1f} km "
-              f"({L.dx_km/cfg.delta_i_km:>4.2f} di)   region: {region}   "
+        print(f"  {L.name:<5} {L.kind.upper():<3}  dx = {dx_km:>5.1f} km "
+              f"({dx_km/cfg.delta_i_km:>4.2f} di)   region: {region}   "
               f"steps/finest = {cfg.steps_per_finest(L.name):.4g}")
     print("=" * 80)
 

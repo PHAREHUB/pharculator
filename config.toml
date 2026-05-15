@@ -1,7 +1,7 @@
 # PHARE load-estimator configuration.
 # All fields shown have defaults if omitted; only [[levels]] is required.
 
-delta_i_km = 100.0          # ion inertial length, sets the resolution unit
+delta_i_km = 100.0          # ion inertial length (THE physical-scale knob)
 re_km = 6371.2
 
 target_hours = 3.0          # physical run duration
@@ -10,7 +10,11 @@ dt_ratio_per_level = 4.0    # dt of level n = dt_ratio * dt of level n+1
 
 dayside_only = true         # PIC AMR only in the +x_GSE half-space
 sample_dx_re = 0.5          # probe-grid resolution for volume integration
-reference_dx_km = 20.0      # uniform PIC reference run resolution
+
+# Reference uniform run resolution. Specify exactly one of:
+#   reference_dx_di = 0.2   (recommended — scales with delta_i_km)
+#   reference_dx_km = 20.0  (absolute)
+reference_dx_di = 0.2
 
 # "Cheat" knob to control the magnetosphere size. 1.0 = Earth's actual dipole.
 # Both MP and BS get scaled by dipole_strength^(1/3) (pressure-balance scaling).
@@ -37,7 +41,9 @@ v_kms = 400.0
 bz_nt = 0.0
 
 # Levels are listed coarsest first; the last entry is the finest and
-# carries the base dt.
+# carries the base dt. For each level, specify exactly one of:
+#   dx_di = ...   (resolution in units of delta_i — scales with delta_i_km)
+#   dx_km = ...   (absolute resolution in km)
 #
 # region = "full"  : whole domain
 # region = "shell" : sheath shell, requires pad_re (Re inside MP, outside BS)
@@ -46,26 +52,26 @@ bz_nt = 0.0
 [[levels]]
 name = "L0"
 kind = "mhd"
-dx_km = 80.0
+dx_di = 0.8
 region = "full"
 
 [[levels]]
 name = "L1"
 kind = "pic"
-dx_km = 80.0
+dx_di = 0.8
 region = "shell"
 pad_re = 3.0
 
 [[levels]]
 name = "L2"
 kind = "pic"
-dx_km = 40.0
+dx_di = 0.4
 region = "band"
 band_re = 1.5
 
 [[levels]]
 name = "L3"
 kind = "pic"
-dx_km = 20.0
+dx_di = 0.2
 region = "band"
 band_re = 0.5
