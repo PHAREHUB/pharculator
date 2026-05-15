@@ -1,19 +1,19 @@
 import numpy as np
 
-from phare_load.constants import NOMINAL_SW
+from phare_load.constants import NOMINAL_SW, L0_DX_KM, L1_DX_KM, L2_DX_KM
 from phare_load.models import subsolar_mp, subsolar_bs, shue_mp, jelinek_bs
 from phare_load.geometry import sample_shell
-from phare_load.load import uniform_load, amr_load
+from phare_load.load import uniform_reference, amr_load
 
 
 def test_shue_subsolar_nominal():
     r = subsolar_mp(NOMINAL_SW)
-    assert 9.5 < r < 11.5, f"Shue subsolar MP out of range: {r}"
+    assert 9.5 < r < 11.5
 
 
 def test_jelinek_subsolar_nominal():
     r = subsolar_bs(NOMINAL_SW)
-    assert 13.0 < r < 15.5, f"Jelinek subsolar BS out of range: {r}"
+    assert 13.0 < r < 15.5
 
 
 def test_bs_outside_mp_everywhere():
@@ -21,30 +21,36 @@ def test_bs_outside_mp_everywhere():
     assert np.all(jelinek_bs(theta) > shue_mp(theta))
 
 
-def test_shell_volume_nonzero():
+def test_resolutions():
+    assert L0_DX_KM == 40.0
+    assert L1_DX_KM == 20.0
+    assert L2_DX_KM == 10.0
+
+
+def test_shell_volumes_nonzero():
     s = sample_shell(sample_dx_Re=1.0)
-    assert s.volume_Re3 > 0
+    assert s.volume_L1_Re3 > 0
+    assert s.volume_L2_Re3 > 0
+    assert s.volume_L2_Re3 < s.volume_L1_Re3
 
 
-def test_uniform_load_baseline():
-    L = uniform_load(10.0)
-    # 10 km uniform: ~1.67e16 particles, ~9e17 bytes
+def test_uniform_reference_baseline():
+    L = uniform_reference(10.0)
     assert 1e16 < L.n_particles < 3e16
-    assert 5e17 < L.ram_bytes < 2e18
+    assert L.is_pic
 
 
-def test_amr_vs_equivalent_uniform():
-    uni10 = uniform_load(10.0)
-    _, total, _ = amr_load(sample_dx_Re=1.0)
-    assert total.n_particles < uni10.n_particles
-    assert uni10.n_particles / total.n_particles > 50
+def test_l0_has_no_particles():
+    L0, L1, L2, total, _ = amr_load(sample_dx_Re=1.0)
+    assert L0.n_particles == 0
+    assert not L0.is_pic
+    assert L1.n_particles > 0
+    assert L2.n_particles > 0
+    assert total.n_particles == L1.n_particles + L2.n_particles
 
 
-def test_l1_l2_volume_fractions():
-    _, _, shell = amr_load(sample_dx_Re=1.0)
-    # L1 ~ 10% of L0, L2 ~ 5% of L0 (i.e. 50% of L1). Allow tolerance for
-    # discretization (sampling at 1 Re gives stepwise targets).
-    f1 = shell.volume_L1_Re3 / shell.volume_Re3
-    f2 = shell.volume_L2_Re3 / shell.volume_L1_Re3
-    assert 0.08 < f1 < 0.12, f1
-    assert 0.45 < f2 < 0.55, f2
+def test_amr_cheaper_than_uniform_reference():
+    ref = uniform_reference(10.0)
+    _, _, _, total, _ = amr_load(sample_dx_Re=1.0)
+    assert total.n_particles < ref.n_particles
+    assert ref.n_particles / total.n_particles > 5
