@@ -27,16 +27,24 @@ def test_shell_volume_nonzero():
 
 
 def test_uniform_load_baseline():
-    L = uniform_load(100.0)
-    # Order of magnitude: ~1.67e13 particles, ~9e14 bytes
-    assert 1e13 < L.n_particles < 3e13
-    assert 5e14 < L.ram_bytes < 2e15
+    L = uniform_load(10.0)
+    # 10 km uniform: ~1.67e16 particles, ~9e17 bytes
+    assert 1e16 < L.n_particles < 3e16
+    assert 5e17 < L.ram_bytes < 2e18
 
 
 def test_amr_vs_equivalent_uniform():
-    # AMR with finest level dx=10 km should be much cheaper than
-    # a 10 km uniform run over the whole domain.
     uni10 = uniform_load(10.0)
     _, total, _ = amr_load(sample_dx_Re=1.0)
     assert total.n_particles < uni10.n_particles
     assert uni10.n_particles / total.n_particles > 50
+
+
+def test_l1_l2_volume_fractions():
+    _, _, shell = amr_load(sample_dx_Re=1.0)
+    # L1 ~ 10% of L0, L2 ~ 5% of L0 (i.e. 50% of L1). Allow tolerance for
+    # discretization (sampling at 1 Re gives stepwise targets).
+    f1 = shell.volume_L1_Re3 / shell.volume_Re3
+    f2 = shell.volume_L2_Re3 / shell.volume_L1_Re3
+    assert 0.08 < f1 < 0.12, f1
+    assert 0.45 < f2 < 0.55, f2

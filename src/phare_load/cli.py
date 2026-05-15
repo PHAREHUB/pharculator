@@ -36,7 +36,7 @@ def main(argv=None):
     p.add_argument("--n", type=float, default=NOMINAL_SW.n_cm3, help="SW density [cm-3]")
     p.add_argument("--V", type=float, default=NOMINAL_SW.V_kms, help="SW speed [km/s]")
     p.add_argument("--Bz", type=float, default=NOMINAL_SW.Bz_nT, help="IMF Bz [nT]")
-    p.add_argument("--uniform-dx-km", type=float, default=100.0)
+    p.add_argument("--uniform-dx-km", type=float, default=10.0)
     p.add_argument("--pad-Re", type=float, default=2.0,
                    help="Buffer outside BS and inside MP for L0 shell")
     p.add_argument("--sample-dx-Re", type=float, default=0.5,
@@ -77,9 +77,7 @@ def main(argv=None):
     fmt = "{:>14}  {:>10}  {:>16}  {:>16}  {:>12}  {:>16}"
     print(fmt.format("level", "dx [km]", "N_cells", "N_particles", "RAM", "t/step"))
     print("-" * 96)
-    from .load import uniform_load
-    uni10 = uniform_load(10.0)
-    rows = [report.uniform, uni10] + report.amr_levels + [report.amr_total]
+    rows = [report.uniform] + report.amr_levels + [report.amr_total]
     for L in rows:
         dx = "—" if L.dx_km != L.dx_km else f"{L.dx_km:.1f}"   # nan check
         ram_str = _fmt_bytes(L.ram_bytes)
@@ -93,17 +91,17 @@ def main(argv=None):
     uni = report.uniform
     amr = report.amr_total
     print()
-    print("Reference ratios (particles):")
-    print(f"  AMR / uniform_100km            : {amr.n_particles / uni.n_particles:8.2f} ×")
-    print(f"  uniform_10km / AMR             : {uni10.n_particles / amr.n_particles:8.1f} ×")
-    print(f"  uniform_10km / uniform_100km   : {uni10.n_particles / uni.n_particles:8.1f} ×")
+    print(f"Uniform {uni.dx_km:.0f} km / AMR ratios:")
+    print(f"  particles : {uni.n_particles / amr.n_particles:8.1f} ×")
+    print(f"  RAM       : {uni.ram_bytes   / amr.ram_bytes  :8.1f} ×")
+    print(f"  time/step : {uni.sec_per_step/ amr.sec_per_step:8.1f} ×")
     print()
     print(f"Wall-time for {report.n_steps_target:,} steps on N cores:")
-    for ncores in (1, 1_000, 10_000, 100_000):
+    for ncores in (1, 10_000, 100_000, 1_000_000):
         t_uni = uni.sec_per_step * report.n_steps_target / ncores
         t_amr = amr.sec_per_step * report.n_steps_target / ncores
-        print(f"  N = {ncores:>7}  cores : "
-              f"uniform {_fmt_time(t_uni):>10}   |   AMR {_fmt_time(t_amr):>10}")
+        print(f"  N = {ncores:>9}  cores : "
+              f"uniform {_fmt_time(t_uni):>12}   |   AMR {_fmt_time(t_amr):>12}")
     print()
 
     out = make_figure(report, shell, sw=sw, out_path=args.out)

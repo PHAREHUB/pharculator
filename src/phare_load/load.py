@@ -81,19 +81,18 @@ def amr_load(
     l1_fraction: float = 0.10,
     l2_fraction_of_l1: float = 0.50,
 ) -> tuple[list[LevelLoad], LevelLoad, ShellSample]:
-    shell = sample_shell(sw=sw, pad_Re=pad_Re, sample_dx_Re=sample_dx_Re)
-    V0 = shell.volume_Re3
-    V1 = l1_fraction * V0
-    V2 = l2_fraction_of_l1 * V1
-
-    L0 = _level("L0", 40.0, V0)
-    L1 = _level("L1", 20.0, V1)
-    L2 = _level("L2", 10.0, V2)
+    shell = sample_shell(
+        sw=sw, pad_Re=pad_Re, sample_dx_Re=sample_dx_Re,
+        l1_fraction=l1_fraction, l2_fraction_of_l1=l2_fraction_of_l1,
+    )
+    L0 = _level("L0", 40.0, shell.volume_Re3)
+    L1 = _level("L1", 20.0, shell.volume_L1_Re3)
+    L2 = _level("L2", 10.0, shell.volume_L2_Re3)
 
     total = LevelLoad(
         name="AMR total",
         dx_km=float("nan"),
-        volume_Re3=V0,  # PIC footprint
+        volume_Re3=shell.volume_Re3,  # PIC footprint
         n_cells=L0.n_cells + L1.n_cells + L2.n_cells,
         n_particles=L0.n_particles + L1.n_particles + L2.n_particles,
         ram_bytes=L0.ram_bytes + L1.ram_bytes + L2.ram_bytes,
