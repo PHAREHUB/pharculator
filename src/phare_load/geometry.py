@@ -37,8 +37,8 @@ def sample_regions(cfg: Config) -> RegionSample:
         cos_t = np.where(r > 0, Xg / r, 1.0)
     cos_t = np.clip(cos_t, -1.0, 1.0)
     theta = np.arccos(cos_t)
-    r_mp = shue_mp(theta, cfg.solar_wind)
-    r_bs = jelinek_bs(theta, cfg.solar_wind)
+    r_mp = shue_mp(theta, cfg.solar_wind, dipole_strength=cfg.dipole_strength)
+    r_bs = jelinek_bs(theta, cfg.solar_wind, dipole_strength=cfg.dipole_strength)
 
     dV = dx ** 3
     masks: dict[str, np.ndarray] = {}

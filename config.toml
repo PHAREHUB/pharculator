@@ -12,6 +12,11 @@ dayside_only = true         # PIC AMR only in the +x_GSE half-space
 sample_dx_re = 0.5          # probe-grid resolution for volume integration
 reference_dx_km = 20.0      # uniform PIC reference run resolution
 
+# "Cheat" knob to control the magnetosphere size. 1.0 = Earth's actual dipole.
+# Both MP and BS get scaled by dipole_strength^(1/3) (pressure-balance scaling).
+# 0.5 → magnetosphere ~21% smaller; 0.125 → half size; 0.001 → MP at ~1 Re.
+dipole_strength = 1.0
+
 [particle]
 ppc = 100
 bytes_per_particle = 56     # 3 pos + 3 vel + 1 charge, all float64

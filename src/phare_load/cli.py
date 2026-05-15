@@ -84,8 +84,10 @@ def main(argv=None):
 
     report, sample = build_report(cfg)
 
-    print(f"Shue MP subsolar : {subsolar_mp(cfg.solar_wind):.2f} Re")
-    print(f"Jelinek BS subsolar : {subsolar_bs(cfg.solar_wind):.2f} Re")
+    ds = cfg.dipole_strength
+    print(f"Shue MP subsolar    : {subsolar_mp(cfg.solar_wind, ds):.2f} Re   "
+          f"(dipole_strength = {ds:.3g})")
+    print(f"Jelinek BS subsolar : {subsolar_bs(cfg.solar_wind, ds):.2f} Re")
     print()
     print("Per-level volumes (PIC only):")
     for L in report.pic_levels:

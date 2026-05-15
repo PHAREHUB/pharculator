@@ -78,6 +78,12 @@ class Config:
     dayside_only: bool = True
     sample_dx_re: float = 0.5
 
+    # Knob to "cheat" the magnetosphere size: relative to Earth's actual dipole
+    # moment. Both the Shue magnetopause and the Jelinek bow shock are scaled
+    # by dipole_strength**(1/3), which is the correct scaling at the subsolar
+    # point (pressure balance gives r_mp proportional to M_E**(1/3)).
+    dipole_strength: float = 1.0
+
     # reference uniform run
     reference_dx_km: float = 20.0
 
@@ -108,7 +114,7 @@ def load_config(path: str | Path) -> Config:
     for key in (
         "delta_i_km", "re_km", "target_hours", "dt_finest_s",
         "dt_ratio_per_level", "dayside_only", "sample_dx_re",
-        "reference_dx_km",
+        "reference_dx_km", "dipole_strength",
     ):
         if key in raw:
             setattr(cfg, key, raw[key])

@@ -16,9 +16,9 @@ from .load import LoadReport
 _THETA_CURVE_MAX = np.deg2rad(178.0)
 
 
-def _model_curve_user(model_fn, sw, xlim, ylim, n=2000):
+def _model_curve_user(model_fn, sw, xlim, ylim, n=2000, dipole_strength=1.0):
     theta = np.linspace(0.0, _THETA_CURVE_MAX, n)
-    r = model_fn(theta, sw)
+    r = model_fn(theta, sw, dipole_strength=dipole_strength)
     x_gse = r * np.cos(theta)
     y = r * np.sin(theta)
     x_user = -x_gse
@@ -102,8 +102,10 @@ def _draw_panel(ax, axis: str, sample: RegionSample, report: LoadReport):
 
     xlim = ax.get_xlim()
     ylim = max(abs(ax.get_ylim()[0]), abs(ax.get_ylim()[1]))
-    xmp, ymp = _model_curve_user(shue_mp, cfg.solar_wind, xlim, ylim)
-    xbs, ybs = _model_curve_user(jelinek_bs, cfg.solar_wind, xlim, ylim)
+    xmp, ymp = _model_curve_user(shue_mp, cfg.solar_wind, xlim, ylim,
+                                 dipole_strength=cfg.dipole_strength)
+    xbs, ybs = _model_curve_user(jelinek_bs, cfg.solar_wind, xlim, ylim,
+                                 dipole_strength=cfg.dipole_strength)
     ax.plot(xmp, ymp, color="#b30000", lw=1.6, label="Magnetopause (Shue 1998)")
     ax.plot(xbs, ybs, color="#08306b", lw=1.6, label="Bow shock (Jelínek 2012)")
 
