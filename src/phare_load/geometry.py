@@ -60,6 +60,7 @@ def sample_shell(
     l2_band_Re: float = 1.5,
     l3_band_Re: float = 0.5,
     sample_dx_Re: float = 0.5,
+    dayside_only: bool = True,
 ) -> ShellSample:
     """Sample the three PIC levels on a regular probe grid.
 
@@ -90,6 +91,9 @@ def sample_shell(
     r_bs = jelinek_bs(theta, sw)
 
     in_L1 = (r >= (r_mp - l1_pad_Re)) & (r <= (r_bs + l1_pad_Re))
+    if dayside_only:
+        # Dayside = +x_GSE half-space = -x_user half-space.
+        in_L1 = in_L1 & (Xg >= 0)
 
     d_mp = np.abs(r - r_mp)
     d_bs = np.abs(r - r_bs)

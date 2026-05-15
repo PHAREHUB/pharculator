@@ -93,6 +93,7 @@ def amr_load(
     l2_band_Re: float = 1.5,
     l3_band_Re: float = 0.5,
     sample_dx_Re: float = 0.5,
+    dayside_only: bool = True,
 ):
     shell = sample_shell(
         sw=sw,
@@ -100,6 +101,7 @@ def amr_load(
         l2_band_Re=l2_band_Re,
         l3_band_Re=l3_band_Re,
         sample_dx_Re=sample_dx_Re,
+        dayside_only=dayside_only,
     )
     L0 = _mhd_level("L0 (MHD)", L0_DX_KM, domain_volume_Re3(),
                     steps_per_L3=STEPS_PER_L3["L0"])
@@ -131,6 +133,7 @@ def build_report(
     l3_band_Re: float = 0.5,
     sample_dx_Re: float = 0.5,
     reference_dx_km: float = REFERENCE_UNIFORM_DX_KM,
+    dayside_only: bool = True,
 ):
     L0, L1, L2, L3, total, shell = amr_load(
         sw=sw,
@@ -138,6 +141,7 @@ def build_report(
         l2_band_Re=l2_band_Re,
         l3_band_Re=l3_band_Re,
         sample_dx_Re=sample_dx_Re,
+        dayside_only=dayside_only,
     )
     ref = uniform_reference(reference_dx_km)
     n_steps = int(round(TARGET_RUN_HOURS * 3600.0 / DT_SECONDS))

@@ -48,6 +48,9 @@ def main(argv=None):
     p.add_argument("--l3-band-Re", type=float, default=0.5)
     p.add_argument("--sample-dx-Re", type=float, default=0.5)
     p.add_argument("--reference-dx-km", type=float, default=REFERENCE_UNIFORM_DX_KM)
+    p.add_argument("--full-magnetosphere", action="store_true",
+                   help="Include the nightside in the AMR PIC region "
+                        "(default: dayside only)")
     p.add_argument("--out", default="outputs/load_estimate.png")
     args = p.parse_args(argv)
 
@@ -59,6 +62,7 @@ def main(argv=None):
         l3_band_Re=args.l3_band_Re,
         sample_dx_Re=args.sample_dx_Re,
         reference_dx_km=args.reference_dx_km,
+        dayside_only=not args.full_magnetosphere,
     )
 
     print("=" * 80)

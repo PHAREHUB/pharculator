@@ -119,12 +119,14 @@ def _draw_panel(ax, axis: str, shell: ShellSample, report: LoadReport, sw: Solar
         f"Σ AMR PIC:                          N = {report.amr_total.n_particles:.2e}\n"
         f"Uniform {ref.dx_km:.0f} km PIC (full box):    N = {ref.n_particles:.2e}"
     )
-    ax.text(0.02, 0.98, txt, transform=ax.transAxes,
-            va="top", ha="left", fontsize=8,
+    # Annotation lives on the nightside (right half of the user frame) so
+    # it does not cover the MP / BS curves on the dayside.
+    ax.text(0.98, 0.98, txt, transform=ax.transAxes,
+            va="top", ha="right", fontsize=8,
             family="monospace",
             bbox=dict(facecolor="white", alpha=0.85, edgecolor="0.6"))
 
-    ax.legend(loc="lower right", fontsize=8)
+    ax.legend(loc="lower left", fontsize=8)
 
 
 def make_figure(report: LoadReport, shell: ShellSample, sw: SolarWind = NOMINAL_SW,
