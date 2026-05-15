@@ -24,10 +24,10 @@ def test_bs_outside_mp_everywhere():
 
 
 def test_resolutions():
-    assert L0_DX_KM == 40.0
-    assert L1_DX_KM == 40.0
-    assert L2_DX_KM == 20.0
-    assert L3_DX_KM == 10.0
+    assert L0_DX_KM == 80.0
+    assert L1_DX_KM == 80.0
+    assert L2_DX_KM == 40.0
+    assert L3_DX_KM == 20.0
 
 
 def test_subcycling_ratios():
@@ -49,8 +49,9 @@ def test_nested_masks():
 
 
 def test_uniform_reference_baseline():
-    L = uniform_reference(10.0)
-    assert 1e16 < L.n_particles < 3e16
+    # 20 km uniform: domain has 1.676e+14/8 = ~2.1e+13 cells, ~2.1e+15 particles
+    L = uniform_reference(20.0)
+    assert 1e15 < L.n_particles < 5e15
     assert L.is_pic
 
 
@@ -64,7 +65,7 @@ def test_l0_has_no_particles():
 
 
 def test_amr_cheaper_than_uniform_reference():
-    ref = uniform_reference(10.0)
+    ref = uniform_reference(20.0)
     L0, L1, L2, L3, _, _ = amr_load(sample_dx_Re=1.0)
     N = 1
     pic_work = N * (

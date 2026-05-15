@@ -8,11 +8,11 @@ Re_km = 6371.2  # Earth radius in km
 DELTA_I_KM = 100.0
 
 # Mesh resolutions per level, in units of delta_i.
-L0_DX_KM = 0.4 * DELTA_I_KM   # 40 km — MHD, full domain, no particles
-L1_DX_KM = 0.4 * DELTA_I_KM   # 40 km — PIC, sheath shell with 3 Re buffers
-L2_DX_KM = 0.2 * DELTA_I_KM   # 20 km — PIC, 1.5 Re bands around MP and BS
-L3_DX_KM = 0.1 * DELTA_I_KM   # 10 km — PIC, 0.5 Re bands around MP and BS
-REFERENCE_UNIFORM_DX_KM = 0.1 * DELTA_I_KM   # 10 km PIC over the whole box
+L0_DX_KM = 0.8 * DELTA_I_KM   # 80 km — MHD, full domain, no particles
+L1_DX_KM = 0.8 * DELTA_I_KM   # 80 km — PIC, sheath shell with 3 Re buffers
+L2_DX_KM = 0.4 * DELTA_I_KM   # 40 km — PIC, 1.5 Re bands around MP and BS
+L3_DX_KM = 0.2 * DELTA_I_KM   # 20 km — PIC, 0.5 Re bands around MP and BS
+REFERENCE_UNIFORM_DX_KM = 0.2 * DELTA_I_KM   # 20 km PIC over the whole box
 
 # A PHARE-like particle: 3 doubles position + 3 doubles velocity + 1 charge.
 BYTES_PER_PARTICLE = 7 * 8  # 56 bytes

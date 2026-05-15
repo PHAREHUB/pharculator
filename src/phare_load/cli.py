@@ -72,13 +72,15 @@ def main(argv=None):
     print(f"  Bz  = {sw.Bz_nT:+.1f} nT")
     print(f"  Pd  = {pdyn_nPa(sw):.3f} nPa")
     print()
+    def _frac(dx):
+        return f"{dx/DELTA_I_KM:.2f} di"
     print(f"Ion inertial length delta_i = {DELTA_I_KM:.0f} km")
-    print(f"  L0 = {L0_DX_KM:>4.0f} km = 0.4 di  (MHD, full domain;        1 step / 64 L3)")
-    print(f"  L1 = {L1_DX_KM:>4.0f} km = 0.4 di  (PIC, sheath ±{args.l1_pad_Re:.1f} Re;     1 step / 16 L3)")
-    print(f"  L2 = {L2_DX_KM:>4.0f} km = 0.2 di  (PIC, ±{args.l2_band_Re:.1f} Re of MP+BS;  1 step /  4 L3)")
-    print(f"  L3 = {L3_DX_KM:>4.0f} km = 0.1 di  (PIC, ±{args.l3_band_Re:.1f} Re of MP+BS;  base dt)")
+    print(f"  L0 = {L0_DX_KM:>4.0f} km = {_frac(L0_DX_KM)}  (MHD, full domain;        1 step / 64 L3)")
+    print(f"  L1 = {L1_DX_KM:>4.0f} km = {_frac(L1_DX_KM)}  (PIC, sheath ±{args.l1_pad_Re:.1f} Re;     1 step / 16 L3)")
+    print(f"  L2 = {L2_DX_KM:>4.0f} km = {_frac(L2_DX_KM)}  (PIC, ±{args.l2_band_Re:.1f} Re of MP+BS;  1 step /  4 L3)")
+    print(f"  L3 = {L3_DX_KM:>4.0f} km = {_frac(L3_DX_KM)}  (PIC, ±{args.l3_band_Re:.1f} Re of MP+BS;  base dt)")
     print(f"  reference = {args.reference_dx_km:.0f} km PIC uniform "
-          f"(0.{int(round(args.reference_dx_km/DELTA_I_KM*10))} di, full domain, same dt as L3)")
+          f"({_frac(args.reference_dx_km)}, full domain, same dt as L3)")
     print()
     print("Model standoff:")
     print(f"  Shue magnetopause subsolar : {subsolar_mp(sw):.2f} Re")
