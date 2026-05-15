@@ -82,29 +82,31 @@ def _shade_levels(ax, sample: RegionSample, report: LoadReport, axis: str):
     return colors
 
 
-def _draw_panel(ax, axis: str, sample: RegionSample, report: LoadReport):
+def _draw_panel(ax, sample: RegionSample, report: LoadReport,
+                xlim=None, ylim=None, title="Meridional slice (Y=0)",
+                annotate=True):
     cfg = report.cfg
     d = cfg.domain
-    ax.set_xlim(d.x_min, d.x_max)
-    if axis == "xz":
-        ax.set_ylim(d.z_min, d.z_max)
-        ax.set_ylabel("Z [Re]")
-        ax.set_title("Meridional slice (Y=0)")
-    else:
-        ax.set_ylim(d.y_min, d.y_max)
-        ax.set_ylabel("Y [Re]")
-        ax.set_title("Equatorial slice (Z=0)")
+    if xlim is None:
+        xlim = (d.x_min, d.x_max)
+    if ylim is None:
+        ylim = (d.z_min, d.z_max)
+    ax.set_xlim(*xlim)
+    ax.set_ylim(*ylim)
     ax.set_xlabel("X [Re]    (Sun ←)")
+    ax.set_ylabel("Z [Re]")
+    ax.set_title(title)
     ax.set_aspect("equal", adjustable="box")
     ax.grid(True, linestyle=":", alpha=0.4)
+    axis = "xz"
 
     _shade_levels(ax, sample, report, axis)
 
-    xlim = ax.get_xlim()
-    ylim = max(abs(ax.get_ylim()[0]), abs(ax.get_ylim()[1]))
-    xmp, ymp = _model_curve_user(shue_mp, cfg.solar_wind, xlim, ylim,
+    xl = ax.get_xlim()
+    yl = max(abs(ax.get_ylim()[0]), abs(ax.get_ylim()[1]))
+    xmp, ymp = _model_curve_user(shue_mp, cfg.solar_wind, xl, yl,
                                  dipole_strength=cfg.dipole_strength)
-    xbs, ybs = _model_curve_user(jelinek_bs, cfg.solar_wind, xlim, ylim,
+    xbs, ybs = _model_curve_user(jelinek_bs, cfg.solar_wind, xl, yl,
                                  dipole_strength=cfg.dipole_strength)
     ax.plot(xmp, ymp, color="#b30000", lw=1.6, label="Magnetopause (Shue 1998)")
     ax.plot(xbs, ybs, color="#08306b", lw=1.6, label="Bow shock (Jelínek 2012)")
@@ -114,29 +116,49 @@ def _draw_panel(ax, axis: str, sample: RegionSample, report: LoadReport):
     ax.annotate("Earth", (0, 0), textcoords="offset points", xytext=(6, 6),
                 fontsize=8, color="k")
 
-    lines = []
-    for L in report.levels:
-        if L.is_pic:
-            lines.append(f"{L.name} ({L.dx_km:>4.0f} km, PIC): "
-                         f"N = {L.n_particles:.2e}")
-        else:
-            lines.append(f"{L.name} ({L.dx_km:>4.0f} km, MHD): no particles")
-    lines.append(f"Σ AMR PIC:           N = {report.amr_total.n_particles:.2e}")
-    ref = report.uniform_reference
-    lines.append(f"uniform {ref.dx_km:.0f} km PIC:   N = {ref.n_particles:.2e}")
-    ax.text(0.98, 0.98, "\n".join(lines), transform=ax.transAxes,
-            va="top", ha="right", fontsize=8,
-            family="monospace",
-            bbox=dict(facecolor="white", alpha=0.85, edgecolor="0.6"))
+    if annotate:
+        lines = []
+        for L in report.levels:
+            if L.is_pic:
+                lines.append(f"{L.name} ({L.dx_km:>4.0f} km, PIC): "
+                             f"N = {L.n_particles:.2e}")
+            else:
+                lines.append(f"{L.name} ({L.dx_km:>4.0f} km, MHD): no particles")
+        lines.append(f"Σ AMR PIC:           N = {report.amr_total.n_particles:.2e}")
+        ref = report.uniform_reference
+        lines.append(f"uniform {ref.dx_km:.0f} km PIC:   N = {ref.n_particles:.2e}")
+        ax.text(0.98, 0.98, "\n".join(lines), transform=ax.transAxes,
+                va="top", ha="right", fontsize=8,
+                family="monospace",
+                bbox=dict(facecolor="white", alpha=0.85, edgecolor="0.6"))
 
     ax.legend(loc="lower left", fontsize=8)
+
+
+def _dayside_zoom(report: LoadReport) -> tuple[tuple[float, float], tuple[float, float]]:
+    """Auto-determine a dayside zoom box around the MP and BS subsolar."""
+    cfg = report.cfg
+    from .models import subsolar_mp, subsolar_bs
+    r_mp = subsolar_mp(cfg.solar_wind, dipole_strength=cfg.dipole_strength)
+    r_bs = subsolar_bs(cfg.solar_wind, dipole_strength=cfg.dipole_strength)
+    # Subsolar point in user frame is at x_user = -r_mp.  Frame the zoom so
+    # we see Earth + sunward shell + a bit of magnetosphere.
+    x_min = -1.6 * r_bs       # ~4 Re beyond the BS standoff
+    x_max = max(8.0, 0.7 * r_mp)
+    half = 1.5 * r_bs
+    return (x_min, x_max), (-half, half)
 
 
 def make_figure(report: LoadReport, sample: RegionSample,
                 out_path: str = "outputs/load_estimate.png"):
     fig, axes = plt.subplots(1, 2, figsize=(15, 6))
-    _draw_panel(axes[0], "xz", sample, report)
-    _draw_panel(axes[1], "xy", sample, report)
+    _draw_panel(axes[0], sample, report,
+                title="Meridional slice (Y=0) — full domain")
+    xlim, ylim = _dayside_zoom(report)
+    _draw_panel(axes[1], sample, report,
+                xlim=xlim, ylim=ylim,
+                title="Dayside zoom (Y=0)",
+                annotate=False)
     names = ", ".join(L.name for L in report.cfg.levels)
     fig.suptitle(f"PHARE global magnetosphere — levels: {names}",
                  fontsize=12)
