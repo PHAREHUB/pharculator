@@ -44,20 +44,21 @@ def _slice_masks(shell: ShellSample, axis: str):
         V = shell.z[:, iy, :]
         m1 = shell.in_L1[:, iy, :]
         m2 = shell.in_L2[:, iy, :]
+        m3 = shell.in_L3[:, iy, :]
     elif axis == "xy":
         iz = np.argmin(np.abs(shell.z[0, 0, :]))
         X = shell.x_user[:, :, iz]
         V = shell.y[:, :, iz]
         m1 = shell.in_L1[:, :, iz]
         m2 = shell.in_L2[:, :, iz]
+        m3 = shell.in_L3[:, :, iz]
     else:
         raise ValueError(axis)
-    return X, V, m1, m2
+    return X, V, m1, m2, m3
 
 
 def _shade_levels(ax, shell: ShellSample, axis: str):
     d = DOMAIN_USER
-    # L0 (MHD) tint over the whole box
     ax.add_patch(Rectangle(
         (d["x_min"], -30 if axis == "xz" else d["y_min"]),
         d["x_max"] - d["x_min"],
@@ -65,15 +66,15 @@ def _shade_levels(ax, shell: ShellSample, axis: str):
         facecolor="#f0f4f8", edgecolor="none", zorder=0,
     ))
 
-    X, V, m1, m2 = _slice_masks(shell, axis)
-    # Encode 1 = L1 only, 2 = L2 (inside L1)
+    X, V, m1, m2, m3 = _slice_masks(shell, axis)
     lvl = np.zeros_like(m1, dtype=int)
     lvl[m1] = 1
     lvl[m2] = 2
+    lvl[m3] = 3
     ax.contourf(
         X, V, lvl.astype(float),
-        levels=[0.5, 1.5, 2.5],
-        colors=["#9ecae1", "#08306b"],   # L1, L2
+        levels=[0.5, 1.5, 2.5, 3.5],
+        colors=["#c6dbef", "#4292c6", "#08306b"],   # L1, L2, L3
         alpha=0.8,
         zorder=1,
     )
@@ -108,14 +109,15 @@ def _draw_panel(ax, axis: str, shell: ShellSample, report: LoadReport, sw: Solar
     ax.annotate("Earth", (0, 0), textcoords="offset points", xytext=(6, 6),
                 fontsize=8, color="k")
 
-    L0, L1, L2 = report.L0, report.L1, report.L2
+    L0, L1, L2, L3 = report.L0, report.L1, report.L2, report.L3
     ref = report.uniform_reference
     txt = (
-        f"L0 ({L0.dx_km:.0f} km, MHD, whole box):  no particles\n"
-        f"L1 ({L1.dx_km:.0f} km, sheath ±3 Re):    N = {L1.n_particles:.2e}\n"
-        f"L2 ({L2.dx_km:.0f} km, 1.5 Re of MP+BS): N = {L2.n_particles:.2e}\n"
+        f"L0 ({L0.dx_km:.0f} km, MHD, full box):    no particles\n"
+        f"L1 ({L1.dx_km:.0f} km, sheath ±3 Re):     N = {L1.n_particles:.2e}\n"
+        f"L2 ({L2.dx_km:.0f} km, 1.5 Re of MP+BS):  N = {L2.n_particles:.2e}\n"
+        f"L3 ({L3.dx_km:.0f} km, 0.5 Re of MP+BS):  N = {L3.n_particles:.2e}\n"
         f"Σ AMR PIC:                          N = {report.amr_total.n_particles:.2e}\n"
-        f"Uniform {ref.dx_km:.0f} km PIC (full box):   N = {ref.n_particles:.2e}"
+        f"Uniform {ref.dx_km:.0f} km PIC (full box):    N = {ref.n_particles:.2e}"
     )
     ax.text(0.02, 0.98, txt, transform=ax.transAxes,
             va="top", ha="left", fontsize=8,
@@ -130,7 +132,7 @@ def make_figure(report: LoadReport, shell: ShellSample, sw: SolarWind = NOMINAL_
     fig, axes = plt.subplots(1, 2, figsize=(15, 6))
     _draw_panel(axes[0], "xz", shell, report, sw)
     _draw_panel(axes[1], "xy", shell, report, sw)
-    fig.suptitle("PHARE global magnetosphere — MHD (L0) + PIC AMR (L1, L2)",
+    fig.suptitle("PHARE global magnetosphere — MHD (L0) + PIC AMR (L1, L2, L3)",
                  fontsize=12)
     fig.tight_layout(rect=(0, 0, 1, 0.96))
 

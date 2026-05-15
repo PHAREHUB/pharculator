@@ -27,10 +27,12 @@ DOMAIN_USER = {
 @dataclass(frozen=True)
 class ShellSample:
     in_L1: np.ndarray         # bool: sheath shell with pad buffers (PIC)
-    in_L2: np.ndarray         # bool: thin bands around MP and BS (PIC)
-    dV_Re3: float             # volume of one sampling cell (Re^3)
+    in_L2: np.ndarray         # bool: medium bands around MP and BS (PIC)
+    in_L3: np.ndarray         # bool: narrow bands around MP and BS (PIC)
+    dV_Re3: float
     volume_L1_Re3: float
     volume_L2_Re3: float
+    volume_L3_Re3: float
     x_user: np.ndarray
     y: np.ndarray
     z: np.ndarray
@@ -56,17 +58,17 @@ def sample_shell(
     sw: SolarWind = NOMINAL_SW,
     l1_pad_Re: float = 3.0,
     l2_band_Re: float = 1.5,
+    l3_band_Re: float = 0.5,
     sample_dx_Re: float = 0.5,
 ) -> ShellSample:
-    """Sample the PIC levels on a regular probe grid.
+    """Sample the three PIC levels on a regular probe grid.
 
-    L1 is the sheath shell with a `l1_pad_Re`-Re buffer outside the BS and
-    inside the MP:
-        L1 = { r_mp(theta) - l1_pad <= r <= r_bs(theta) + l1_pad }
-
-    L2 is the union of two thin bands of half-thickness `l2_band_Re`
-    around the MP and BS surfaces, intersected with L1:
-        L2 = L1  and  ( |r - r_mp| <= l2_band  OR  |r - r_bs| <= l2_band )
+    L1 : sheath shell with a `l1_pad_Re`-Re buffer outside the BS and
+         inside the MP. PIC at L1 resolution.
+    L2 : bands of half-thickness `l2_band_Re` around the MP and BS,
+         nested inside L1.
+    L3 : narrower bands of half-thickness `l3_band_Re` around the MP and BS,
+         nested inside L2.
 
     Where the BS surface lies outside the user-domain box, the box itself
     truncates the levels naturally.
@@ -89,20 +91,24 @@ def sample_shell(
 
     in_L1 = (r >= (r_mp - l1_pad_Re)) & (r <= (r_bs + l1_pad_Re))
 
-    near_mp = np.abs(r - r_mp) <= l2_band_Re
-    near_bs = np.abs(r - r_bs) <= l2_band_Re
-    in_L2 = in_L1 & (near_mp | near_bs)
+    d_mp = np.abs(r - r_mp)
+    d_bs = np.abs(r - r_bs)
+    in_L2 = in_L1 & ((d_mp <= l2_band_Re) | (d_bs <= l2_band_Re))
+    in_L3 = in_L1 & ((d_mp <= l3_band_Re) | (d_bs <= l3_band_Re))
 
     dV = sample_dx_Re ** 3
     V1 = float(in_L1.sum()) * dV
     V2 = float(in_L2.sum()) * dV
+    V3 = float(in_L3.sum()) * dV
 
     return ShellSample(
         in_L1=in_L1,
         in_L2=in_L2,
+        in_L3=in_L3,
         dV_Re3=dV,
         volume_L1_Re3=V1,
         volume_L2_Re3=V2,
+        volume_L3_Re3=V3,
         x_user=X,
         y=Y,
         z=Z,

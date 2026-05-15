@@ -9,8 +9,9 @@ DELTA_I_KM = 100.0
 
 # Mesh resolutions per level, in units of delta_i.
 L0_DX_KM = 0.4 * DELTA_I_KM   # 40 km — MHD, full domain, no particles
-L1_DX_KM = 0.2 * DELTA_I_KM   # 20 km — PIC, sheath shell with 3 Re buffers
-L2_DX_KM = 0.1 * DELTA_I_KM   # 10 km — PIC, 1.5 Re bands around MP and BS
+L1_DX_KM = 0.4 * DELTA_I_KM   # 40 km — PIC, sheath shell with 3 Re buffers
+L2_DX_KM = 0.2 * DELTA_I_KM   # 20 km — PIC, 1.5 Re bands around MP and BS
+L3_DX_KM = 0.1 * DELTA_I_KM   # 10 km — PIC, 0.5 Re bands around MP and BS
 REFERENCE_UNIFORM_DX_KM = 0.1 * DELTA_I_KM   # 10 km PIC over the whole box
 
 # A PHARE-like particle: 3 doubles position + 3 doubles velocity + 1 charge.
@@ -20,8 +21,17 @@ PPC = 100  # particles per cell
 # Cost model: aggregate single-thread time per particle per timestep.
 SEC_PER_PARTICLE_PER_STEP = 10e-9  # 10 ns
 
-# Time-step: dt = 1e-3 / Omega_ci, with Omega_ci ~ 1 rad/s in the magnetosheath.
-DT_SECONDS = 1e-3
+# L3 (the finest level) and the reference uniform run use the base time step.
+# Each coarser AMR level fires every 4 steps of the next finer one
+# (dt scales as dx**2 with the user's convention).
+DT_SECONDS = 1e-3            # L3 / uniform time step
+STEPS_PER_L3 = {
+    "L0": 1.0 / 64.0,
+    "L1": 1.0 / 16.0,
+    "L2": 1.0 / 4.0,
+    "L3": 1.0,
+    "uniform": 1.0,
+}
 
 # Physical run target.
 TARGET_RUN_HOURS = 3.0
