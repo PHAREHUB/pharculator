@@ -67,11 +67,48 @@ DEFAULT_LEVELS = [
 # Sidebar — global parameters
 # ---------------------------------------------------------------------------
 
+# Proton inertial length <-> density relation (cold plasma, protons only):
+#   δᵢ [km] = c / ω_pi,  ω_pi = sqrt(n e² / (ε₀ m_p))
+#   →  δᵢ [km] = 227.7 / sqrt(n [cm⁻³])
+#   →  n [cm⁻³] = (227.7 / δᵢ [km])²
+DI_N_CONST_KM = 227.7  # δᵢ × √n  for protons (km × cm^{-3/2})
+
+
+def _di_to_n(di_km: float) -> float:
+    return (DI_N_CONST_KM / di_km) ** 2
+
+
+def _n_to_di(n_cm3: float) -> float:
+    return DI_N_CONST_KM / (n_cm3 ** 0.5)
+
+
+# Initialise the linked widgets in session_state so the bidirectional
+# coupling has well-defined starting values.
+if "delta_i_km" not in st.session_state:
+    st.session_state.delta_i_km = 100.0
+if "sw_n" not in st.session_state:
+    # Keep the historical default (n = 5 cm⁻³) on first load even though it
+    # corresponds to δᵢ ≈ 102 km, not exactly 100. The coupling only fires on
+    # user-initiated changes, not on the initial render.
+    st.session_state.sw_n = 5.0
+
+
+def _on_delta_i_change():
+    st.session_state.sw_n = _di_to_n(st.session_state.delta_i_km)
+
+
+def _on_n_change():
+    st.session_state.delta_i_km = _n_to_di(st.session_state.sw_n)
+
+
 with st.sidebar:
     st.header("Physical scales")
-    delta_i_km = st.number_input("δᵢ (ion inertial length) [km]",
-                                 min_value=10.0, max_value=1000.0, value=100.0,
-                                 step=10.0)
+    delta_i_km = st.number_input(
+        "δᵢ (ion inertial length) [km]",
+        min_value=1.0, max_value=10_000.0, step=10.0,
+        key="delta_i_km", on_change=_on_delta_i_change,
+        help="Coupled to solar-wind n (protons only): "
+             "δᵢ = 227.7 / √n. Editing either side updates the other.")
     omega_ci_inverse_s = st.number_input("1/Ω_ci [s]",
                                          min_value=0.01, max_value=10.0,
                                          value=1.0, step=0.1)
@@ -85,8 +122,10 @@ with st.sidebar:
                                      "dipole_strength^(1/3). 1.0 = Earth today.")
 
     st.header("Solar wind")
-    sw_n = st.number_input("n [cm⁻³]", min_value=0.1, max_value=50.0,
-                           value=5.0, step=0.5)
+    sw_n = st.number_input(
+        "n [cm⁻³]", min_value=0.001, max_value=1000.0, step=0.5,
+        key="sw_n", on_change=_on_n_change,
+        help="Coupled to δᵢ (see above).")
     sw_v = st.number_input("V [km/s]", min_value=200.0, max_value=1500.0,
                            value=400.0, step=10.0)
     sw_bz = st.number_input("Bz [nT]", min_value=-30.0, max_value=30.0,
