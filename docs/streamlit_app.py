@@ -351,6 +351,23 @@ for L in report.levels:
             / (pic_work / N) if pic_work > 0 else 0.0),
     })
 
+# Summary row: AMR totals across all PIC levels (MHD has zero particles).
+pic_rows = [L for L in report.levels if L.is_pic]
+if pic_rows:
+    rows.append({
+        "level": "AMR Σ",
+        "kind": "TOTAL",
+        "dx [km]": float("nan"),  # not aggregable
+        "N_cells": sum(L.n_cells for L in pic_rows),
+        "N_part":  sum(L.n_particles for L in pic_rows),
+        "RAM [TB]": sum(L.ram_bytes for L in pic_rows) / 2**40,
+        # Sum of per-level step counts across the hierarchy (total subcycled
+        # advances, including coarse levels firing less often).
+        "steps":   sum(N * L.steps_per_finest for L in report.levels),
+        "pushes":  pic_work,
+        "% of AMR per-step work": 100.0,
+    })
+
 st.dataframe(
     rows,
     hide_index=True,
