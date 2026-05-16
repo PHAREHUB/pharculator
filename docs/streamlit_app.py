@@ -333,6 +333,14 @@ for i, ref in enumerate(report.uniform_references, start=1):
 # ----- per-level table ------------------------------------------------------
 st.subheader("Per-level breakdown")
 N = report.n_steps_target
+
+
+def _sci(x: float) -> str:
+    """Scientific notation as a string (avoids JS integer overflow in the
+    frontend for values beyond 2**53)."""
+    return f"{x:.2e}" if x else "—"
+
+
 rows = []
 for L in report.levels:
     n_steps = N * L.steps_per_finest
@@ -341,11 +349,11 @@ for L in report.levels:
         "level": L.name,
         "kind": L.kind.upper(),
         "dx [km]": L.dx_km,
-        "N_cells": L.n_cells,
-        "N_part": L.n_particles,
+        "N_cells": _sci(L.n_cells),
+        "N_part":  _sci(L.n_particles),
         "RAM [TB]": L.ram_bytes / 2**40,
-        "steps": n_steps,
-        "pushes": pushes,
+        "steps":   _sci(n_steps),
+        "pushes":  _sci(pushes),
         "% of AMR per-step work": (
             100.0 * L.steps_per_finest * L.n_particles
             / (pic_work / N) if pic_work > 0 else 0.0),
@@ -357,14 +365,14 @@ if pic_rows:
     rows.append({
         "level": "AMR Σ",
         "kind": "TOTAL",
-        "dx [km]": float("nan"),  # not aggregable
-        "N_cells": sum(L.n_cells for L in pic_rows),
-        "N_part":  sum(L.n_particles for L in pic_rows),
+        "dx [km]": float("nan"),
+        "N_cells": _sci(sum(L.n_cells for L in pic_rows)),
+        "N_part":  _sci(sum(L.n_particles for L in pic_rows)),
         "RAM [TB]": sum(L.ram_bytes for L in pic_rows) / 2**40,
         # Sum of per-level step counts across the hierarchy (total subcycled
         # advances, including coarse levels firing less often).
-        "steps":   sum(N * L.steps_per_finest for L in report.levels),
-        "pushes":  pic_work,
+        "steps":   _sci(sum(N * L.steps_per_finest for L in report.levels)),
+        "pushes":  _sci(pic_work),
         "% of AMR per-step work": 100.0,
     })
 
@@ -373,12 +381,11 @@ st.dataframe(
     hide_index=True,
     column_config={
         "dx [km]":  st.column_config.NumberColumn(format="%.1f"),
-        "N_cells":  st.column_config.NumberColumn(format="%.2e"),
-        "N_part":   st.column_config.NumberColumn(format="%.2e"),
         "RAM [TB]": st.column_config.NumberColumn(format="%.2f"),
-        "steps":    st.column_config.NumberColumn(format="%.2e"),
-        "pushes":   st.column_config.NumberColumn(format="%.2e"),
         "% of AMR per-step work": st.column_config.NumberColumn(format="%.2f"),
+        # N_cells / N_part / steps / pushes are pre-formatted strings, rendered
+        # as TextColumn — avoids the JS Number.MAX_SAFE_INTEGER overflow that
+        # NumberColumn hits beyond ~9e15.
     },
 )
 
