@@ -359,23 +359,6 @@ for L in report.levels:
             / (pic_work / N) if pic_work > 0 else 0.0),
     })
 
-# Summary row: AMR totals across all PIC levels (MHD has zero particles).
-pic_rows = [L for L in report.levels if L.is_pic]
-if pic_rows:
-    rows.append({
-        "level": "AMR Σ",
-        "kind": "TOTAL",
-        "dx [km]": float("nan"),
-        "N_cells": _sci(sum(L.n_cells for L in pic_rows)),
-        "N_part":  _sci(sum(L.n_particles for L in pic_rows)),
-        "RAM [TB]": sum(L.ram_bytes for L in pic_rows) / 2**40,
-        # Sum of per-level step counts across the hierarchy (total subcycled
-        # advances, including coarse levels firing less often).
-        "steps":   _sci(sum(N * L.steps_per_finest for L in report.levels)),
-        "pushes":  _sci(pic_work),
-        "% of AMR per-step work": 100.0,
-    })
-
 st.dataframe(
     rows,
     hide_index=True,
@@ -386,6 +369,60 @@ st.dataframe(
         # N_cells / N_part / steps / pushes are pre-formatted strings, rendered
         # as TextColumn — avoids the JS Number.MAX_SAFE_INTEGER overflow that
         # NumberColumn hits beyond ~9e15.
+    },
+)
+
+# ----- Comparison with uniform models --------------------------------------
+st.subheader("Comparison with uniform models")
+st.caption(
+    "Aggregates the AMR hierarchy vs each uniform-PIC reference run over "
+    "the same physical duration. Each uniform reference uses its own "
+    "CFL-appropriate dt (∝ dx²), so the comparison is physically honest.")
+
+pic_levels = [L for L in report.levels if L.is_pic]
+amr_n_cells = sum(L.n_cells for L in pic_levels)
+amr_n_part  = sum(L.n_particles for L in pic_levels)
+amr_steps_total = sum(N * L.steps_per_finest for L in report.levels)
+amr_pushes = pic_work
+amr_cpuh   = amr_sec / 3600
+
+comp_rows = [{
+    "model":    "AMR Σ",
+    "dx [km]":  float("nan"),  # multi-resolution
+    "N_cells":  _sci(amr_n_cells),
+    "N_part":   _sci(amr_n_part),
+    "RAM [TB]": amr_ram / 2**40,
+    "steps":    _sci(amr_steps_total),
+    "pushes":   _sci(amr_pushes),
+    "CPU·h":    _sci(amr_cpuh),
+    "vs AMR":   1.0,
+}]
+
+for ref in report.uniform_references:
+    ref_steps  = N * ref.steps_per_finest
+    ref_pushes = ref_steps * ref.n_particles
+    ref_cpuh   = ref_pushes * cfg.sec_per_particle_per_step / 3600
+    comp_rows.append({
+        "model":    f"uniform {ref.dx_km:.1f} km",
+        "dx [km]":  ref.dx_km,
+        "N_cells":  _sci(ref.n_cells),
+        "N_part":   _sci(ref.n_particles),
+        "RAM [TB]": ref.ram_bytes / 2**40,
+        "steps":    _sci(ref_steps),
+        "pushes":   _sci(ref_pushes),
+        "CPU·h":    _sci(ref_cpuh),
+        "vs AMR":   ref_cpuh / amr_cpuh if amr_cpuh > 0 else float("nan"),
+    })
+
+st.dataframe(
+    comp_rows,
+    hide_index=True,
+    column_config={
+        "dx [km]":  st.column_config.NumberColumn(format="%.1f"),
+        "RAM [TB]": st.column_config.NumberColumn(format="%.2f"),
+        "vs AMR":   st.column_config.NumberColumn(
+            format="%.2f ×",
+            help="CPU·h relative to AMR. >1 = uniform is more expensive than AMR."),
     },
 )
 
