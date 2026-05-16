@@ -5,6 +5,7 @@ writes the figure.
 from __future__ import annotations
 
 import argparse
+import os
 from pathlib import Path
 
 from .config import load_config, Config
@@ -59,9 +60,10 @@ def _summary(cfg: Config) -> None:
           f"= {dt_finest_s:.4g} s")
     print(f"Run target: {cfg.target_hours} h physical  →  "
           f"N_finest = {cfg.n_steps_target:,} steps")
-    ref_dx_km = cfg.resolve_reference_dx_km()
-    print(f"Reference uniform PIC dx = {ref_dx_km} km  "
-          f"({ref_dx_km/cfg.delta_i_km:.2f} delta_i)")
+    ref_dx_km_list = cfg.resolve_reference_dx_km_list()
+    print("Reference uniform PIC dx (coarsest → finest):")
+    for ref_dx_km in ref_dx_km_list:
+        print(f"  {ref_dx_km:>6.1f} km  ({ref_dx_km/cfg.delta_i_km:.2f} delta_i)")
     print()
     print("Levels (coarsest → finest):")
     for L in cfg.levels:
@@ -84,6 +86,18 @@ def main(argv=None):
     p.add_argument("--config", default=str(DEFAULT_CONFIG),
                    help="Path to a TOML config file (default: bundled config.toml).")
     p.add_argument("--out", default="outputs/load_estimate.png")
+    p.add_argument("--plot3d", action="store_true",
+                   help="Also write a 3D interactive HTML "
+                        "(requires the viz3d extra: pip install -e .[viz3d]).")
+    p.add_argument("--plot3d-html", default="outputs/load_estimate_3d.html",
+                   help="Output path for the 3D HTML.")
+    p.add_argument("--plot3d-png", action="append", default=[],
+                   metavar="PRESET",
+                   help="Render a static PNG from a camera preset "
+                        "(front|oblique|tail|top). Repeatable. "
+                        "Saved next to the HTML as load_estimate_3d_<preset>.png.")
+    p.add_argument("--no-cutaway", action="store_true",
+                   help="Disable the Y<0 cutaway in the 3D view.")
     args = p.parse_args(argv)
 
     cfg = load_config(args.config)
@@ -106,7 +120,7 @@ def main(argv=None):
 
     N = report.n_steps_target
     pic = report.pic_levels
-    ref = report.uniform_reference
+    refs = report.uniform_references
 
     # ----- 1. Memory footprint per level -------------------------------------
     print()
@@ -120,8 +134,9 @@ def main(argv=None):
     amr_ram = sum(L.ram_bytes for L in pic)
     print(f"  → Total AMR PIC footprint:                            "
           f"RAM = {_fmt_bytes(amr_ram)}")
-    print(f"    (reference uniform {ref.dx_km:.0f} km PIC)            "
-          f"RAM = {_fmt_bytes(ref.ram_bytes)}")
+    for ref in refs:
+        print(f"    (reference uniform {ref.dx_km:>5.1f} km PIC)          "
+              f"RAM = {_fmt_bytes(ref.ram_bytes)}")
 
     # ----- 2. Number of timesteps per level over the run ---------------------
     print()
@@ -129,7 +144,6 @@ def main(argv=None):
     print(f"  Run duration: {cfg.target_hours:.3g} h "
           f"= {cfg.target_hours * 3600 / cfg.omega_ci_inverse_s:.4g} /Ω_ci")
     for L in report.levels:
-        dt_L_s = report.uniform_reference.dx_km  # placeholder, replaced below
         dt_L_s = cfg.resolve_dt_finest_s() / L.steps_per_finest
         dt_L_omega = dt_L_s / cfg.omega_ci_inverse_s
         n_steps = N * L.steps_per_finest
@@ -137,8 +151,13 @@ def main(argv=None):
               f"steps = {n_steps:>14,.0f}")
     print(f"  {'Σ all levels':<6}                                "
           f"steps = {sum(N * L.steps_per_finest for L in report.levels):>14,.0f}")
-    print(f"  uniform {ref.dx_km:.0f} km  dt = {cfg.resolve_dt_finest_s()/cfg.omega_ci_inverse_s:.4g}/Ω_ci   "
-          f"steps = {N:>14,.0f}")
+    dt_finest_s = cfg.resolve_dt_finest_s()
+    for ref in refs:
+        dt_ref_s = dt_finest_s / ref.steps_per_finest
+        n_ref = N * ref.steps_per_finest
+        print(f"  uniform {ref.dx_km:>5.1f} km  "
+              f"dt = {dt_ref_s/cfg.omega_ci_inverse_s:.4g}/Ω_ci = {dt_ref_s:.4g} s   "
+              f"steps = {n_ref:>14,.0f}")
 
     # ----- 3. Particle pushes per level --------------------------------------
     print()
@@ -153,11 +172,16 @@ def main(argv=None):
         else:
             print(f"  {L.name:<6}  pushes = — (MHD, no particles)")
     pic_work = sum(pic_work_per_level.values())
-    ref_work = N * ref.n_particles
     print()
-    print(f"  Σ AMR hierarchy (PIC)            : {pic_work:.3e} particle pushes")
-    print(f"  equivalent uniform {ref.dx_km:.0f} km PIC    : {ref_work:.3e} particle pushes")
-    print(f"  ratio uniform / AMR              : {ref_work / pic_work:.2f} ×")
+    print(f"  Σ AMR hierarchy (PIC)              : {pic_work:.3e} particle pushes")
+    for ref in refs:
+        ref_work = N * ref.steps_per_finest * ref.n_particles
+        ratio = ref_work / pic_work
+        sign = "uniform/AMR" if ratio >= 1.0 else "AMR/uniform"
+        rval = ratio if ratio >= 1.0 else 1.0 / ratio
+        print(f"  equivalent uniform {ref.dx_km:>5.1f} km PIC : "
+              f"{ref_work:.3e} pushes   "
+              f"(ratio {sign} = {rval:.2f} ×)")
 
     # ----- 4. Per-finest-step work breakdown ---------------------------------
     if pic:
@@ -173,22 +197,60 @@ def main(argv=None):
     print()
     print("─── 5. CPU·hours (cost = 10 ns / particle / push) ───────────────────")
     amr_sec = pic_work * cfg.sec_per_particle_per_step
-    ref_sec = ref_work * cfg.sec_per_particle_per_step
-    print(f"  AMR hierarchy            : {amr_sec/3600:>14,.0f} CPU·h "
-          f"({amr_sec/3600/1e6:.2f} M CPU·h)")
-    print(f"  equivalent uniform {ref.dx_km:.0f} km : {ref_sec/3600:>14,.0f} CPU·h "
-          f"({ref_sec/3600/1e6:.2f} M CPU·h)")
-    print(f"  ratio uniform / AMR      : {ref_sec / amr_sec:.2f} ×  (AMR cheaper)")
+    print(f"  AMR hierarchy                  : {amr_sec/3600:>16,.0f} CPU·h "
+          f"({amr_sec/3600/1e6:>10.2f} M CPU·h)")
+    ref_secs = []
+    for ref in refs:
+        ref_sec = (N * ref.steps_per_finest * ref.n_particles
+                   * cfg.sec_per_particle_per_step)
+        ref_secs.append(ref_sec)
+        ratio = ref_sec / amr_sec
+        if ratio >= 1.0:
+            tag = f"ratio uniform/AMR = {ratio:8.2f} ×  (AMR cheaper)"
+        else:
+            tag = f"ratio AMR/uniform = {1.0/ratio:8.2f} ×  (uniform cheaper)"
+        print(f"  equivalent uniform {ref.dx_km:>5.1f} km   : "
+              f"{ref_sec/3600:>16,.0f} CPU·h "
+              f"({ref_sec/3600/1e6:>10.2f} M CPU·h)   {tag}")
     print()
     print("  Wall-time on N cores (ideal linear scaling):")
+    header = "    N = {:>9}  cores : AMR {:>14}".format("", "")
+    # Build aligned header dynamically based on references.
+    cols = "    {label:<22}   AMR {amr:>14}".format(label="", amr="")
     for ncores in (1, 10_000, 100_000, 1_000_000):
-        print(f"    N = {ncores:>9}  cores : "
-              f"uniform {_fmt_time(ref_sec/ncores):>14}   |   "
-              f"AMR {_fmt_time(amr_sec/ncores):>14}")
+        amr_wt = _fmt_time(amr_sec / ncores)
+        parts = [f"AMR {amr_wt:>14}"]
+        for ref, ref_sec in zip(refs, ref_secs):
+            parts.append(f"uniform {ref.dx_km:>5.1f} km {_fmt_time(ref_sec/ncores):>14}")
+        print(f"    N = {ncores:>9}  cores : " + "   |   ".join(parts))
     print()
 
     out = make_figure(report, sample, out_path=args.out)
     print(f"Figure written to: {out}")
+
+    if args.plot3d:
+        try:
+            from .plotting3d import make_figure_3d
+        except ImportError as e:
+            print(f"  [plot3d] missing dependency ({e}). "
+                  f"Install with: pip install -e .[viz3d]")
+        else:
+            html_dir = os.path.dirname(args.plot3d_html) or "."
+            base = os.path.splitext(os.path.basename(args.plot3d_html))[0]
+            png_paths = [
+                (preset, os.path.join(html_dir, f"{base}_{preset}.png"))
+                for preset in args.plot3d_png
+            ]
+            html = make_figure_3d(
+                report, sample,
+                html_path=args.plot3d_html,
+                png_paths=png_paths or None,
+                cutaway_y=not args.no_cutaway,
+            )
+            print(f"3D HTML written to: {html}")
+            for _, p in png_paths:
+                if os.path.exists(p):
+                    print(f"3D PNG written to:  {p}")
     return 0
 
 

@@ -16,10 +16,12 @@ dt_ratio_per_level = 4.0    # dt(level n) = dt_ratio * dt(level n+1)
 dayside_only = true         # PIC AMR only in the +x_GSE half-space
 sample_dx_re = 0.5          # probe-grid resolution for volume integration
 
-# Reference uniform run resolution. Specify exactly one of:
-#   reference_dx_di = 0.1   (recommended — scales with delta_i_km)
-#   reference_dx_km = 10.0  (absolute)
-reference_dx_di = 0.1
+# Reference uniform run resolution(s). Specify exactly one of:
+#   reference_dx_di = 0.1            (single reference; scales with delta_i_km)
+#   reference_dx_di = [1.0, 0.1]     (multiple — e.g. coarse 1 δᵢ baseline + fine 0.1 δᵢ target)
+#   reference_dx_km = 10.0           (absolute, single)
+#   reference_dx_km = [100.0, 10.0]  (absolute, multiple)
+reference_dx_di = [1.0, 0.1]
 
 # "Cheat" knob to control the magnetosphere size. 1.0 = Earth's actual dipole.
 # Both MP and BS get scaled by dipole_strength^(1/3) (pressure-balance scaling).

@@ -33,7 +33,7 @@ class LevelLoad:
 class LoadReport:
     levels: list[LevelLoad]
     amr_total: LevelLoad
-    uniform_reference: LevelLoad
+    uniform_references: list[LevelLoad]
     n_steps_target: int
     cfg: Config
 
@@ -46,6 +46,11 @@ class LoadReport:
     @property
     def pic_levels(self) -> list[LevelLoad]:
         return [L for L in self.levels if L.is_pic]
+
+    @property
+    def uniform_reference(self) -> LevelLoad:
+        """Back-compat: the FINEST uniform reference."""
+        return self.uniform_references[-1]
 
 
 def _level_from_spec(spec: LevelSpec, volume_Re3: float, cfg: Config,
@@ -81,16 +86,28 @@ def build_report(cfg: Config) -> tuple[LoadReport, RegionSample]:
         levels.append(_level_from_spec(
             spec, v, cfg, cfg.steps_per_finest(spec.name)))
 
-    # Reference uniform PIC over the whole box, sharing dt with the finest level.
-    ref_dx_km = cfg.resolve_reference_dx_km()
-    ref_spec = LevelSpec(
-        name=f"uniform_{ref_dx_km:.0f}km",
-        kind="pic",
-        dx_km=ref_dx_km,
-        region="full",
-    )
-    ref = _level_from_spec(ref_spec, cfg.domain.volume_Re3(), cfg,
-                           steps_per_finest=1.0)
+    # Reference uniform PIC run(s) over the whole box. Each gets its own
+    # CFL-appropriate dt scaling as dx² (PHARE-PIC convention). Anchored on
+    # the finest AMR PIC level: dt_ref = dt_finest · (dx_ref/dx_finest)²,
+    # which means N_ref = N_finest · (dx_finest/dx_ref)². At dx_ref == dx_finest
+    # this collapses back to steps_per_finest = 1 (back-compat).
+    ref_dx_km_list = cfg.resolve_reference_dx_km_list()
+    pic_specs = cfg.pic_levels
+    dx_finest_km = (pic_specs[-1].resolve_dx_km(cfg.delta_i_km)
+                    if pic_specs else ref_dx_km_list[-1])
+    refs: list[LevelLoad] = []
+    for ref_dx_km in ref_dx_km_list:
+        ref_spec = LevelSpec(
+            name=f"uniform_{ref_dx_km:.0f}km",
+            kind="pic",
+            dx_km=ref_dx_km,
+            region="full",
+        )
+        # Each ref runs at its own CFL dt → fewer steps when coarser.
+        steps_per_finest = (dx_finest_km / ref_dx_km) ** 2
+        refs.append(_level_from_spec(
+            ref_spec, cfg.domain.volume_Re3(), cfg,
+            steps_per_finest=steps_per_finest))
 
     pic = [L for L in levels if L.is_pic]
     total = LevelLoad(
@@ -108,7 +125,7 @@ def build_report(cfg: Config) -> tuple[LoadReport, RegionSample]:
     return LoadReport(
         levels=levels,
         amr_total=total,
-        uniform_reference=ref,
+        uniform_references=refs,
         n_steps_target=cfg.n_steps_target,
         cfg=cfg,
     ), sample

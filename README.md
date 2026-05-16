@@ -34,6 +34,36 @@ Or with your own:
 .venv/bin/python -m phare_load.cli --config my_setup.toml --out my_plot.png
 ```
 
+## 3D visualization (optional)
+
+Install the extra deps once:
+
+```bash
+.venv/bin/pip install -e ".[viz3d]"
+```
+
+Then add `--plot3d` to produce a standalone interactive HTML alongside the
+2D figure:
+
+```bash
+.venv/bin/python -m phare_load.cli --plot3d
+```
+
+This writes `outputs/load_estimate_3d.html` — open it in any browser to
+rotate the nested PIC shells, the Shue magnetopause, and the Jelínek bow
+shock around Earth. The default view is a `Y < 0` cutaway so the nested
+L1→Lₙ onion is exposed; pass `--no-cutaway` to render full surfaces.
+
+For static slide-friendly PNGs, append one or more camera presets
+(`front`, `oblique`, `tail`, `top`):
+
+```bash
+.venv/bin/python -m phare_load.cli --plot3d \
+  --plot3d-png oblique --plot3d-png front
+```
+
+Each PNG is saved next to the HTML as `load_estimate_3d_<preset>.png`.
+
 ## Tests
 
 ```bash

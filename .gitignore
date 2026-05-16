@@ -7,4 +7,5 @@ __pycache__/
 build/
 dist/
 outputs/*.png
+outputs/*.html
 .DS_Store

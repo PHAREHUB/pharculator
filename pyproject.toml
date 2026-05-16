@@ -9,6 +9,9 @@ description = "Estimate computational and memory load of global magnetosphere PI
 requires-python = ">=3.9"
 dependencies = ["numpy", "matplotlib"]
 
+[project.optional-dependencies]
+viz3d = ["plotly>=5.0", "scikit-image>=0.20", "kaleido"]
+
 [project.scripts]
 phare-load = "phare_load.cli:main"
 

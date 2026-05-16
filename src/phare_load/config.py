@@ -101,16 +101,31 @@ class Config:
     # point (pressure balance gives r_mp proportional to M_E**(1/3)).
     dipole_strength: float = 1.0
 
-    # reference uniform run: specify exactly one of these.
-    reference_dx_km: float | None = None
-    reference_dx_di: float | None = None
+    # reference uniform run(s): specify exactly one of these. Either a single
+    # float (one reference) or a list of floats (multiple, e.g. a coarse 1 δᵢ
+    # baseline plus a fine 0.1 δᵢ target). Listed coarsest-first by convention.
+    reference_dx_km: float | list[float] | None = None
+    reference_dx_di: float | list[float] | None = None
 
     def resolve_reference_dx_km(self) -> float:
+        """Back-compat single-value accessor — returns the FINEST reference."""
+        return self.resolve_reference_dx_km_list()[-1]
+
+    def resolve_reference_dx_km_list(self) -> list[float]:
         if (self.reference_dx_km is None) == (self.reference_dx_di is None):
             raise ValueError(
                 "Specify exactly one of reference_dx_km or reference_dx_di.")
-        return (self.reference_dx_km if self.reference_dx_km is not None
-                else self.reference_dx_di * self.delta_i_km)
+        raw = (self.reference_dx_km if self.reference_dx_km is not None
+               else self.reference_dx_di)
+        scale = 1.0 if self.reference_dx_km is not None else self.delta_i_km
+        if isinstance(raw, (int, float)):
+            values = [float(raw) * scale]
+        else:
+            values = [float(v) * scale for v in raw]
+        if not values:
+            raise ValueError("reference_dx_* list must not be empty.")
+        # Sort coarsest -> finest for stable ordering in reports.
+        return sorted(values, reverse=True)
 
     domain: Domain = field(default_factory=Domain)
     solar_wind: SolarWind = field(default_factory=SolarWind)
