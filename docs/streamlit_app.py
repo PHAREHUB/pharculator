@@ -200,11 +200,16 @@ with st.sidebar:
         gpu_power_kw = st.number_input("Power per GPU node [kW]",
                                        min_value=0.1, max_value=20.0,
                                        value=3.4, step=0.1)
-        total_gpu_nodes = st.number_input("Total GPU nodes in machine",
-                                          min_value=1, max_value=100_000,
-                                          value=3500, step=100,
-                                          help="Used for the '× Alice Recoque' "
-                                               "overflow factor.")
+        total_gpu_nodes = st.number_input(
+            "Total GPU nodes in machine",
+            min_value=1, max_value=100_000,
+            value=3500, step=100,
+            help="NOT officially published. Default extrapolated from the "
+                 "announced ~1 EFlop FP64 target: at ~4 × 120 TF (4× MI430X) "
+                 "≈ 480 TF/node and ~50–70 % efficiency to reach sustained "
+                 "1 EFlop, the GPU partition lands in the 2 000–4 000 nodes "
+                 "range. Edit this value if GENCI / EuroHPC publishes the "
+                 "actual count.")
 
         st.markdown("**CPU partition** (SiPEARL Rhea2)")
         cores_per_cpu_node = st.number_input("Cores per CPU node",
@@ -216,9 +221,15 @@ with st.sidebar:
         cpu_power_kw = st.number_input("Power per CPU node [kW]",
                                        min_value=0.05, max_value=5.0,
                                        value=0.6, step=0.05)
-        total_cpu_nodes = st.number_input("Total CPU nodes in machine",
-                                          min_value=1, max_value=200_000,
-                                          value=5000, step=100)
+        total_cpu_nodes = st.number_input(
+            "Total CPU nodes in machine",
+            min_value=1, max_value=200_000,
+            value=5000, step=100,
+            help="NOT officially published. Even less constrained than the "
+                 "GPU partition: announcements only say it is the smaller "
+                 "partition (~5–15 % of total system FLOPs). 5 000 is an "
+                 "order-of-magnitude default — adjust as soon as the real "
+                 "spec is known.")
 
         st.markdown("**Energy**")
         pue = st.number_input("PUE",
