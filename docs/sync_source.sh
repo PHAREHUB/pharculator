@@ -20,3 +20,6 @@ cp "$SRC"/plotting.py    "$DST"/plotting.py
 cp "$SRC"/plotting3d.py  "$DST"/plotting3d.py
 
 echo "Synced $(ls "$DST" | wc -l | tr -d ' ') files into docs/phare_load/"
+
+# Rebuild docs/index.html with the Python sources inlined as base64.
+python3 "$ROOT/docs/build_index.py"
