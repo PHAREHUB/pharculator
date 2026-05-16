@@ -240,6 +240,66 @@ with st.sidebar:
             min_value=0.0, max_value=1000.0, value=50.0, step=10.0,
             help="France grid ≈ 50, EU average ≈ 250, coal ≈ 800.")
 
+    with st.expander("HPC sizing (Adastra — CINES)", expanded=False):
+        st.caption("Existing French/EuroHPC system at CINES, in production "
+                   "since 2022. Three partitions; specs from "
+                   "[dci-gitlab.cines.fr](https://dci.dci-gitlab.cines.fr/"
+                   "webextranet/architecture/index.html).")
+        st.markdown("**MI250X partition** (356 nodes)")
+        ad_mi250_hbm_gb = st.number_input(
+            "HBM per GCD [GB]", min_value=1.0, max_value=2000.0,
+            value=64.0, step=1.0,
+            help="MI250X has 2 GCDs of 64 GB HBM2e each; ROCm exposes them "
+                 "as 2 logical GPUs.")
+        ad_mi250_gcds_per_node = st.number_input(
+            "GCDs per node", min_value=1, max_value=16,
+            value=8, step=1, help="4× MI250X cards × 2 GCDs = 8 per node.")
+        ad_mi250_throughput_g = st.number_input(
+            "Push throughput per GCD [G pushes/s]",
+            min_value=0.1, max_value=500.0, value=20.0, step=1.0,
+            help="HBM2e ≈ 1.6 TB/s per GCD; bandwidth-bound ≈ 20 G/s "
+                 "effective for PIC pushes.")
+        ad_mi250_power_kw = st.number_input(
+            "Power per MI250X node [kW]",
+            min_value=0.1, max_value=10.0, value=2.67, step=0.1,
+            help="From CINES docs.")
+        ad_mi250_nodes = st.number_input(
+            "Total MI250X nodes", min_value=1, max_value=10_000,
+            value=356, step=1)
+
+        st.markdown("**MI300A partition** (28 nodes)")
+        ad_mi300_hbm_gb = st.number_input(
+            "HBM per APU [GB]", min_value=1.0, max_value=2000.0,
+            value=128.0, step=1.0, help="512 GB shared between 4 APUs.")
+        ad_mi300_apus_per_node = st.number_input(
+            "APUs per node", min_value=1, max_value=16,
+            value=4, step=1)
+        ad_mi300_throughput_g = st.number_input(
+            "Push throughput per APU [G pushes/s]",
+            min_value=0.1, max_value=500.0, value=60.0, step=1.0,
+            help="HBM3 ≈ 5 TB/s; ~60 G/s effective.")
+        ad_mi300_power_kw = st.number_input(
+            "Power per MI300A node [kW]",
+            min_value=0.1, max_value=10.0, value=3.5, step=0.1,
+            help="Estimate — not in public docs.")
+        ad_mi300_nodes = st.number_input(
+            "Total MI300A nodes", min_value=1, max_value=10_000,
+            value=28, step=1)
+
+        st.markdown("**Genoa CPU partition** (544 nodes)")
+        ad_genoa_cores = st.number_input(
+            "Cores per Genoa node", min_value=1, max_value=2048,
+            value=192, step=8, help="2× EPYC 9654 = 192 c.")
+        ad_genoa_ram_gb = st.number_input(
+            "RAM per Genoa node [GB]", min_value=8.0, max_value=8192.0,
+            value=768.0, step=64.0)
+        ad_genoa_power_kw = st.number_input(
+            "Power per Genoa node [kW]",
+            min_value=0.05, max_value=5.0, value=0.945, step=0.05)
+        ad_genoa_nodes = st.number_input(
+            "Total Genoa nodes", min_value=1, max_value=10_000,
+            value=544, step=1)
+
 
 # ---------------------------------------------------------------------------
 # Main — level editor
@@ -600,6 +660,68 @@ st.caption(
     "estimate; linear scaling assumed (real efficiency at >10⁴ nodes is "
     "~50–70 %). Edit the defaults in the sidebar **HPC sizing (Alice Recoque)** "
     "expander to refine.")
+
+
+# ----- HPC dispatch on Adastra ---------------------------------------------
+st.subheader("HPC dispatch on Adastra (CINES)")
+st.caption(
+    "Memory-bound sizing on the in-production CINES system (3 partitions: "
+    "MI250X, MI300A, Genoa). All values editable in the sidebar.")
+
+ad_mi250_ram_per_node = ad_mi250_hbm_gb * ad_mi250_gcds_per_node * 1e9
+ad_mi250_pps_per_node = ad_mi250_throughput_g * ad_mi250_gcds_per_node * 1e9
+ad_mi300_ram_per_node = ad_mi300_hbm_gb * ad_mi300_apus_per_node * 1e9
+ad_mi300_pps_per_node = ad_mi300_throughput_g * ad_mi300_apus_per_node * 1e9
+ad_genoa_ram_per_node = ad_genoa_ram_gb * 1e9
+ad_genoa_pps_per_node = (1.0 / cfg.sec_per_particle_per_step) * ad_genoa_cores
+
+# Baseline = AMR on MI250X (the largest Adastra partition) for the energy
+# ratio column.
+ad_baseline = _dispatch(amr_ram, amr_pushes,
+                        ad_mi250_ram_per_node, ad_mi250_pps_per_node,
+                        ad_mi250_power_kw, ad_mi250_nodes)
+ad_baseline_kwh = ad_baseline["energy_kwh"] or 1.0
+
+ad_rows = []
+for model_name, ram_b, pushes in models:
+    for partition_name, specs in (
+        ("MI250X", (ad_mi250_ram_per_node, ad_mi250_pps_per_node,
+                    ad_mi250_power_kw, ad_mi250_nodes)),
+        ("MI300A", (ad_mi300_ram_per_node, ad_mi300_pps_per_node,
+                    ad_mi300_power_kw, ad_mi300_nodes)),
+        ("Genoa",  (ad_genoa_ram_per_node, ad_genoa_pps_per_node,
+                    ad_genoa_power_kw, ad_genoa_nodes)),
+    ):
+        d = _dispatch(ram_b, pushes, *specs)
+        ad_rows.append({
+            "model": model_name,
+            "partition": partition_name,
+            "nodes (memory)": _sci(d["nodes_mem"]),
+            "× Adastra partition": d["machine_frac"],
+            "wall-time": _fmt_walltime(d["wall_time_s"]),
+            "energy [MWh]": d["energy_kwh"] / 1000.0,
+            "tCO₂": d["co2_t"],
+            "vs AMR-MI250X (energy)": (d["energy_kwh"] / ad_baseline_kwh
+                                       if ad_baseline_kwh else float("nan")),
+        })
+
+st.dataframe(
+    ad_rows,
+    hide_index=True,
+    column_config={
+        "energy [MWh]": st.column_config.NumberColumn(format="%.2f"),
+        "tCO₂":         st.column_config.NumberColumn(format="%.3f"),
+        "vs AMR-MI250X (energy)": st.column_config.NumberColumn(
+            format="%.2f ×",
+            help="Energy ratio relative to running the AMR hierarchy on "
+                 "the MI250X partition (Adastra's flagship, 356 nodes)."),
+    },
+)
+
+st.caption(
+    "Adastra peak ≈ 79 PFlop FP64 (68 PF MI250X + 7 PF MI300A + 4 PF Genoa). "
+    "Same caveats as the Alice Recoque table (memory-bound, linear scaling, "
+    "rough per-GPU throughput estimates).")
 
 # ----- subsolar reminders ---------------------------------------------------
 ds = cfg.dipole_strength
