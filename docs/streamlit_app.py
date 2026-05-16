@@ -340,17 +340,30 @@ for L in report.levels:
     rows.append({
         "level": L.name,
         "kind": L.kind.upper(),
-        "dx [km]": L.dx_km,
-        "N_cells": L.n_cells,
-        "N_part": L.n_particles,
+        "dx [km]": round(L.dx_km, 2),
+        "N_cells": int(round(L.n_cells)),
+        "N_part": int(round(L.n_particles)),
         "RAM [TB]": L.ram_bytes / 2**40,
-        "steps": n_steps,
-        "pushes": pushes,
+        "steps": int(round(n_steps)),
+        "pushes": int(round(pushes)),
         "% of AMR per-step work": (
             100.0 * L.steps_per_finest * L.n_particles
             / (pic_work / N) if pic_work > 0 else 0.0),
     })
-st.dataframe(rows, hide_index=True)
+
+st.dataframe(
+    rows,
+    hide_index=True,
+    column_config={
+        "dx [km]":  st.column_config.NumberColumn(format="%.1f"),
+        "N_cells":  st.column_config.NumberColumn(format="%d"),
+        "N_part":   st.column_config.NumberColumn(format="%d"),
+        "RAM [TB]": st.column_config.NumberColumn(format="%.2f"),
+        "steps":    st.column_config.NumberColumn(format="%d"),
+        "pushes":   st.column_config.NumberColumn(format="%d"),
+        "% of AMR per-step work": st.column_config.NumberColumn(format="%.2f"),
+    },
+)
 
 # ----- subsolar reminders ---------------------------------------------------
 ds = cfg.dipole_strength
