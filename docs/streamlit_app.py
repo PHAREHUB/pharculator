@@ -182,6 +182,53 @@ with st.sidebar:
     show_2d = st.checkbox("Render 2D meridional figure", value=True,
                          help="Disable to skip matplotlib (faster live updates).")
 
+    with st.expander("HPC sizing (Alice Recoque)", expanded=False):
+        st.caption("Memory-bound dispatch on France's upcoming exascale "
+                   "machine. All numbers editable.")
+        st.markdown("**GPU partition** (Venice + 4× MI430X)")
+        hbm_per_gpu_gb = st.number_input("HBM per GPU [GB]",
+                                         min_value=16.0, max_value=2000.0,
+                                         value=432.0, step=16.0)
+        gpus_per_node = st.number_input("GPUs per node",
+                                        min_value=1, max_value=16,
+                                        value=4, step=1)
+        gpu_throughput_g = st.number_input(
+            "Push throughput per GPU [G pushes/s]",
+            min_value=0.1, max_value=500.0, value=30.0, step=1.0,
+            help="Bandwidth-bound estimate. MI430X HBM4 ≈ 5 TB/s; "
+                 "~80 B/push including halo → ~50-70 G/s peak, 30 effective.")
+        gpu_power_kw = st.number_input("Power per GPU node [kW]",
+                                       min_value=0.1, max_value=20.0,
+                                       value=3.4, step=0.1)
+        total_gpu_nodes = st.number_input("Total GPU nodes in machine",
+                                          min_value=1, max_value=100_000,
+                                          value=3500, step=100,
+                                          help="Used for the '× Alice Recoque' "
+                                               "overflow factor.")
+
+        st.markdown("**CPU partition** (SiPEARL Rhea2)")
+        cores_per_cpu_node = st.number_input("Cores per CPU node",
+                                             min_value=1, max_value=2048,
+                                             value=128, step=8)
+        cpu_ram_gb = st.number_input("RAM per CPU node [GB]",
+                                     min_value=8.0, max_value=8192.0,
+                                     value=1024.0, step=64.0)
+        cpu_power_kw = st.number_input("Power per CPU node [kW]",
+                                       min_value=0.05, max_value=5.0,
+                                       value=0.6, step=0.05)
+        total_cpu_nodes = st.number_input("Total CPU nodes in machine",
+                                          min_value=1, max_value=200_000,
+                                          value=5000, step=100)
+
+        st.markdown("**Energy**")
+        pue = st.number_input("PUE",
+                              min_value=1.0, max_value=2.5,
+                              value=1.3, step=0.05)
+        carbon_g_per_kwh = st.number_input(
+            "Carbon intensity [gCO₂/kWh]",
+            min_value=0.0, max_value=1000.0, value=50.0, step=10.0,
+            help="France grid ≈ 50, EU average ≈ 250, coal ≈ 800.")
+
 
 # ---------------------------------------------------------------------------
 # Main — level editor
@@ -425,6 +472,123 @@ st.dataframe(
             help="CPU·h relative to AMR. >1 = uniform is more expensive than AMR."),
     },
 )
+
+
+# ----- HPC dispatch on Alice Recoque ---------------------------------------
+st.subheader("HPC dispatch on Alice Recoque")
+st.caption(
+    "Memory-bound sizing for each cost model on both partitions. "
+    "Each GPU node has 4× MI430X (HBM) + 1× Venice CPU; each CPU node is "
+    "a SiPEARL Rhea2. The “× Alice Recoque” column expresses the required "
+    "node count as a fraction of the machine — if the run doesn't fit, "
+    "it tells you **how many Alice Recoques** you would actually need.")
+
+
+def _fmt_walltime(seconds: float) -> str:
+    if seconds <= 0 or not (seconds == seconds):  # 0 or NaN
+        return "—"
+    if seconds < 60:
+        return f"{seconds:.1f} s"
+    if seconds < 3600:
+        return f"{seconds/60:.1f} min"
+    if seconds < 86400:
+        return f"{seconds/3600:.1f} h"
+    if seconds < 7 * 86400:
+        return f"{seconds/86400:.1f} d"
+    if seconds < 365 * 86400:
+        return f"{seconds/(7*86400):.1f} wk"
+    return f"{seconds/(365*86400):.2g} yr"
+
+
+def _fmt_machine_fraction(nodes: float, total: float) -> str:
+    if total <= 0:
+        return "—"
+    frac = nodes / total
+    if frac < 1.0:
+        return f"{frac:.2f} ×"
+    if frac < 100.0:
+        return f"{frac:.1f} × full machine"
+    return f"{frac:.2e} × full machine"
+
+
+def _dispatch(total_ram: float, total_pushes: float,
+              ram_per_node_bytes: float, pushes_per_s_per_node: float,
+              power_kw: float, total_nodes_partition: float) -> dict:
+    """Compute memory-bound node count, wall-time, energy, CO₂ for one
+    (model × partition) cell."""
+    import math
+    nodes = math.ceil(total_ram / ram_per_node_bytes) if ram_per_node_bytes > 0 else float("inf")
+    wall_s = (total_pushes / (nodes * pushes_per_s_per_node)
+              if (nodes > 0 and pushes_per_s_per_node > 0) else float("nan"))
+    energy_kwh = nodes * power_kw * (wall_s / 3600.0) * pue
+    co2_t = energy_kwh * carbon_g_per_kwh / 1e6
+    return {
+        "nodes_mem": nodes,
+        "wall_time_s": wall_s,
+        "energy_kwh": energy_kwh,
+        "co2_t": co2_t,
+        "machine_frac": _fmt_machine_fraction(nodes, total_nodes_partition),
+    }
+
+
+# Build (model, total_ram, total_pushes) tuples once.
+models = [("AMR Σ", amr_ram, amr_pushes)]
+for ref in report.uniform_references:
+    ref_steps  = N * ref.steps_per_finest
+    ref_pushes = ref_steps * ref.n_particles
+    models.append((f"uniform {ref.dx_km:.1f} km", ref.ram_bytes, ref_pushes))
+
+gpu_ram_per_node = hbm_per_gpu_gb * gpus_per_node * 1e9  # bytes
+gpu_pps_per_node = gpu_throughput_g * gpus_per_node * 1e9
+cpu_ram_per_node = cpu_ram_gb * 1e9
+cpu_pps_per_node = (1.0 / cfg.sec_per_particle_per_step) * cores_per_cpu_node
+
+# Baseline reference for the "vs AMR-GPU" energy ratio.
+baseline = _dispatch(amr_ram, amr_pushes,
+                     gpu_ram_per_node, gpu_pps_per_node,
+                     gpu_power_kw, total_gpu_nodes)
+baseline_kwh = baseline["energy_kwh"] or 1.0
+
+hpc_rows = []
+for model_name, ram_b, pushes in models:
+    for partition_name, specs in (
+        ("GPU", (gpu_ram_per_node, gpu_pps_per_node, gpu_power_kw,
+                 total_gpu_nodes)),
+        ("CPU", (cpu_ram_per_node, cpu_pps_per_node, cpu_power_kw,
+                 total_cpu_nodes)),
+    ):
+        d = _dispatch(ram_b, pushes, *specs)
+        hpc_rows.append({
+            "model": model_name,
+            "partition": partition_name,
+            "nodes (memory)": _sci(d["nodes_mem"]),
+            "× Alice Recoque": d["machine_frac"],
+            "wall-time": _fmt_walltime(d["wall_time_s"]),
+            "energy [MWh]": d["energy_kwh"] / 1000.0,
+            "tCO₂": d["co2_t"],
+            "vs AMR-GPU (energy)": (d["energy_kwh"] / baseline_kwh
+                                    if baseline_kwh else float("nan")),
+        })
+
+st.dataframe(
+    hpc_rows,
+    hide_index=True,
+    column_config={
+        "energy [MWh]": st.column_config.NumberColumn(format="%.2f"),
+        "tCO₂":         st.column_config.NumberColumn(format="%.3f"),
+        "vs AMR-GPU (energy)": st.column_config.NumberColumn(
+            format="%.2f ×",
+            help="Energy ratio relative to running the AMR hierarchy on the "
+                 "GPU partition (the natural baseline). >1 means more expensive."),
+    },
+)
+
+st.caption(
+    "Caveats: memory-bound sizing only (perf might require more nodes if "
+    "load balance is poor); throughput per GPU/core is a first-order "
+    "estimate; linear scaling assumed (real efficiency at >10⁴ nodes is "
+    "~50–70 %). Edit the defaults in the sidebar **HPC sizing (Alice Recoque)** "
+    "expander to refine.")
 
 # ----- subsolar reminders ---------------------------------------------------
 ds = cfg.dipole_strength
