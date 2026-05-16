@@ -21,7 +21,7 @@ from phare_load.config import (
 )
 from phare_load.load import build_report
 from phare_load.models import subsolar_mp, subsolar_bs
-from phare_load.plotting import build_figure
+from phare_load.plotting2d import build_figure_2d
 from phare_load.plotting3d import build_figure_3d
 
 
@@ -364,8 +364,8 @@ st.caption(
 if show_2d:
     st.subheader("Meridional + dayside view")
     with st.spinner("Rendering 2D figure…"):
-        fig2d = build_figure(report, sample)
-    st.pyplot(fig2d, clear_figure=True)
+        fig2d = build_figure_2d(report, sample)
+    st.plotly_chart(fig2d, use_container_width=True)
 
 # ----- 3D figure ------------------------------------------------------------
 st.subheader(f"3D view{' (Y<0 cutaway)' if cutaway else ''}")

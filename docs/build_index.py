@@ -28,6 +28,7 @@ FILES = [
     ("phare_load/load.py",        HERE / "phare_load" / "load.py"),
     ("phare_load/models.py",      HERE / "phare_load" / "models.py"),
     ("phare_load/plotting.py",    HERE / "phare_load" / "plotting.py"),
+    ("phare_load/plotting2d.py",  HERE / "phare_load" / "plotting2d.py"),
     ("phare_load/plotting3d.py",  HERE / "phare_load" / "plotting3d.py"),
 ]
 

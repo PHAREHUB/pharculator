@@ -17,6 +17,7 @@ cp "$SRC"/geometry.py    "$DST"/geometry.py
 cp "$SRC"/load.py        "$DST"/load.py
 cp "$SRC"/models.py      "$DST"/models.py
 cp "$SRC"/plotting.py    "$DST"/plotting.py
+cp "$SRC"/plotting2d.py  "$DST"/plotting2d.py
 cp "$SRC"/plotting3d.py  "$DST"/plotting3d.py
 
 echo "Synced $(ls "$DST" | wc -l | tr -d ' ') files into docs/phare_load/"
