@@ -20,17 +20,19 @@ def test_default_config_loads():
     cfg = _default_cfg()
     assert cfg.delta_i_km == 100.0
     assert cfg.dt_ratio_per_level == 4.0
-    assert len(cfg.levels) == 4
+    assert len(cfg.levels) == 5
     assert cfg.levels[0].kind == "mhd"
-    assert cfg.levels[-1].name == "L3"
+    assert cfg.levels[-1].name == "L4"
 
 
 def test_steps_per_finest():
     cfg = _default_cfg()
-    assert cfg.steps_per_finest("L3") == 1.0
-    assert cfg.steps_per_finest("L2") == 0.25
-    assert cfg.steps_per_finest("L1") == 1.0 / 16.0
-    assert cfg.steps_per_finest("L0") == 1.0 / 64.0
+    # finest level fires every base step; each coarser level every 4 of the next finer
+    assert cfg.steps_per_finest("L4") == 1.0
+    assert cfg.steps_per_finest("L3") == 0.25
+    assert cfg.steps_per_finest("L2") == 1.0 / 16.0
+    assert cfg.steps_per_finest("L1") == 1.0 / 64.0
+    assert cfg.steps_per_finest("L0") == 1.0 / 256.0
 
 
 def test_shue_subsolar_nominal():
@@ -53,10 +55,12 @@ def test_nested_masks_default():
     cfg = _default_cfg()
     cfg.sample_dx_re = 1.0
     s = sample_regions(cfg)
-    m1, m2, m3 = s.masks["L1"], s.masks["L2"], s.masks["L3"]
+    m1, m2, m3, m4 = s.masks["L1"], s.masks["L2"], s.masks["L3"], s.masks["L4"]
+    assert np.all(m4 <= m3)
     assert np.all(m3 <= m2)
     assert np.all(m2 <= m1)
-    assert s.volumes_Re3["L1"] > s.volumes_Re3["L2"] > s.volumes_Re3["L3"] > 0
+    assert (s.volumes_Re3["L1"] > s.volumes_Re3["L2"]
+            > s.volumes_Re3["L3"] > s.volumes_Re3["L4"] > 0)
 
 
 def test_mhd_has_no_particles():

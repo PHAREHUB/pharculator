@@ -32,6 +32,9 @@ class LevelSpec:
     region: RegionKind = "full"
     pad_re: float = 0.0        # for region == "shell"
     band_re: float = 0.0       # for region == "band"
+    # For region == "band": which surface(s) the band hugs. Each entry must
+    # be "mp" or "bs". Defaults to both.
+    boundaries: list[str] = field(default_factory=lambda: ["mp", "bs"])
 
     def resolve_dx_km(self, delta_i_km: float) -> float:
         if (self.dx_km is None) == (self.dx_di is None):
@@ -78,8 +81,13 @@ class Config:
     sec_per_particle_per_step: float = 10e-9
 
     # time-stepping
-    target_hours: float = 3.0
-    dt_finest_s: float = 1e-3
+    target_hours: float = 1.0
+    # dt is expressed physically: anchor at the first PIC level ("L1"), then
+    # scale as dx**2 to the finest level via dt_ratio_per_level (= 4 for the
+    # standard refinement ratio 2 in space).
+    omega_ci_inverse_s: float = 1.0        # physical duration of 1/Ω_ci, in s
+    dt_L1_omega_ci: float = 0.05           # L1 dt, in units of 1/Ω_ci
+    dt_finest_s: float | None = None       # optional override (absolute)
     dt_ratio_per_level: float = 4.0
 
     # geometry / sampling
@@ -107,9 +115,27 @@ class Config:
     solar_wind: SolarWind = field(default_factory=SolarWind)
     levels: list[LevelSpec] = field(default_factory=list)
 
+    def resolve_dt_finest_s(self) -> float:
+        """Resolve the finest-level dt in seconds.
+
+        If `dt_finest_s` is set, use it verbatim. Otherwise derive from the
+        L1 dt anchor: dt_finest = dt_L1 · (dx_finest / dx_L1)^2.
+        """
+        if self.dt_finest_s is not None:
+            return self.dt_finest_s
+        pic = self.pic_levels
+        if not pic:
+            raise ValueError(
+                "Cannot derive dt_finest from L1 anchor: no PIC level "
+                "defined. Set dt_finest_s explicitly.")
+        dx_L1 = pic[0].resolve_dx_km(self.delta_i_km)
+        dx_finest = pic[-1].resolve_dx_km(self.delta_i_km)
+        dt_L1_s = self.dt_L1_omega_ci * self.omega_ci_inverse_s
+        return dt_L1_s * (dx_finest / dx_L1) ** 2
+
     @property
     def n_steps_target(self) -> int:
-        return int(round(self.target_hours * 3600.0 / self.dt_finest_s))
+        return int(round(self.target_hours * 3600.0 / self.resolve_dt_finest_s()))
 
     @property
     def pic_levels(self) -> list[LevelSpec]:
@@ -128,7 +154,8 @@ def load_config(path: str | Path) -> Config:
 
     cfg = Config()
     for key in (
-        "delta_i_km", "re_km", "target_hours", "dt_finest_s",
+        "delta_i_km", "re_km", "target_hours",
+        "omega_ci_inverse_s", "dt_L1_omega_ci", "dt_finest_s",
         "dt_ratio_per_level", "dayside_only", "sample_dx_re",
         "reference_dx_km", "reference_dx_di", "dipole_strength",
     ):
@@ -169,8 +196,16 @@ def _validate(cfg: Config) -> None:
             raise ValueError(f"Level {L.name}: region must be full/shell/band.")
         if L.region == "shell" and L.pad_re <= 0:
             raise ValueError(f"Level {L.name}: region='shell' needs pad_re > 0.")
-        if L.region == "band" and L.band_re <= 0:
-            raise ValueError(f"Level {L.name}: region='band' needs band_re > 0.")
+        if L.region == "band":
+            if L.band_re <= 0:
+                raise ValueError(f"Level {L.name}: region='band' needs band_re > 0.")
+            if not L.boundaries:
+                raise ValueError(f"Level {L.name}: boundaries must not be empty.")
+            for b in L.boundaries:
+                if b not in ("mp", "bs"):
+                    raise ValueError(
+                        f"Level {L.name}: boundaries entries must be 'mp' or 'bs',"
+                        f" got {b!r}.")
         L.resolve_dx_km(cfg.delta_i_km)  # raises if both/neither given
     # dx must be non-increasing as we descend the level list (coarsest first)
     for prev, nxt in zip(cfg.levels, cfg.levels[1:]):

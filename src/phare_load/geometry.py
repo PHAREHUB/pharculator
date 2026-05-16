@@ -53,7 +53,11 @@ def sample_regions(cfg: Config) -> RegionSample:
         elif spec.region == "shell":
             m = (r >= (r_mp - spec.pad_re)) & (r <= (r_bs + spec.pad_re))
         elif spec.region == "band":
-            m = (np.abs(r - r_mp) <= spec.band_re) | (np.abs(r - r_bs) <= spec.band_re)
+            m = np.zeros_like(theta, dtype=bool)
+            if "mp" in spec.boundaries:
+                m = m | (np.abs(r - r_mp) <= spec.band_re)
+            if "bs" in spec.boundaries:
+                m = m | (np.abs(r - r_bs) <= spec.band_re)
         else:  # pragma: no cover
             raise AssertionError(spec.region)
         if cfg.dayside_only:
