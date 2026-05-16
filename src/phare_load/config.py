@@ -45,12 +45,13 @@ class LevelSpec:
 
 @dataclass
 class Domain:
-    x_min: float = -30.0
-    x_max: float = 150.0
-    y_min: float = -30.0
-    y_max: float = 30.0
-    z_min: float = -30.0
-    z_max: float = 30.0
+    """Domain box in standard GSE: +x toward the Sun, -x toward the tail."""
+    x_min: float = -100.0
+    x_max: float = 50.0
+    y_min: float = -50.0
+    y_max: float = 50.0
+    z_min: float = -50.0
+    z_max: float = 50.0
 
     def volume_Re3(self) -> float:
         return ((self.x_max - self.x_min)
@@ -77,7 +78,7 @@ class Config:
 
     # particle model
     ppc: int = 100
-    bytes_per_particle: int = 56
+    bytes_per_particle: int = 76
     sec_per_particle_per_step: float = 10e-9
 
     # time-stepping

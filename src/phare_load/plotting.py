@@ -1,11 +1,15 @@
-"""Meridional + equatorial plots of the AMR levels."""
+"""Meridional + equatorial plots of the AMR levels.
+
+Coordinates are standard GSE: +x toward the Sun, -x toward the tail.
+Plots invert the x-axis so the Sun ends up on the LEFT (magnetospheric
+convention), with the tail extending to the right.
+"""
 
 from __future__ import annotations
 
 import numpy as np
 import matplotlib.pyplot as plt
 from matplotlib.patches import Circle, Rectangle
-from matplotlib import colors as mcolors
 
 from .config import Config
 from .geometry import RegionSample
@@ -16,28 +20,33 @@ from .load import LoadReport
 _THETA_CURVE_MAX = np.deg2rad(178.0)
 
 
-def _model_curve_user(model_fn, sw, xlim, ylim, n=2000, dipole_strength=1.0):
+def _model_curve(model_fn, sw, xlim, ylim, n=2000, dipole_strength=1.0):
+    """Return (x_gse, y) for both lobes of the model surface, clipped to the plot box.
+
+    The model curve is rotationally symmetric around the GSE x-axis, so the same
+    curve serves both meridional (X-Z) and equatorial (X-Y) slices.
+    """
     theta = np.linspace(0.0, _THETA_CURVE_MAX, n)
     r = model_fn(theta, sw, dipole_strength=dipole_strength)
-    x_gse = r * np.cos(theta)
+    x = r * np.cos(theta)
     y = r * np.sin(theta)
-    x_user = -x_gse
-    inside = (x_user >= xlim[0]) & (x_user <= xlim[1]) & (y <= ylim)
+    x_lo, x_hi = sorted(xlim)
+    inside = (x >= x_lo) & (x <= x_hi) & (y <= ylim)
     if inside.any():
         kmax = int(np.where(inside)[0].max()) + 1
-        x_user = x_user[:kmax]
+        x = x[:kmax]
         y = y[:kmax]
     nan = np.array([np.nan])
-    x_full = np.concatenate([x_user, nan, x_user])
+    x_full = np.concatenate([x, nan, x])
     y_full = np.concatenate([y, nan, -y])
     return x_full, y_full
 
 
-def _slice_index(arr, axis):
+def _slice_index(sample: RegionSample, axis: str):
     if axis == "xz":
-        return np.argmin(np.abs(arr.y[0, :, 0])), "iy"
+        return int(np.argmin(np.abs(sample.y[0, :, 0])))
     elif axis == "xy":
-        return np.argmin(np.abs(arr.z[0, 0, :])), "iz"
+        return int(np.argmin(np.abs(sample.z[0, 0, :])))
     raise ValueError(axis)
 
 
@@ -49,7 +58,6 @@ def _slice(arr3d, axis, idx):
 
 def _level_colors(n: int):
     cmap = plt.get_cmap("Blues")
-    # Pick progressively darker shades, skipping the very light end.
     return [cmap(0.30 + 0.65 * i / max(n - 1, 1)) for i in range(n)]
 
 
@@ -65,10 +73,9 @@ def _shade_levels(ax, sample: RegionSample, report: LoadReport, axis: str):
     pic_specs = [L for L in report.cfg.levels if L.kind == "pic"]
     if not pic_specs:
         return
-    idx, _ = _slice_index(sample, axis)
-    X = _slice(sample.x_user, axis, idx)
+    idx = _slice_index(sample, axis)
+    X = _slice(sample.x, axis, idx)
     V = _slice(sample.z if axis == "xz" else sample.y, axis, idx)
-    # Stack masks: cell value = highest level index that contains it.
     lvl = np.zeros_like(X, dtype=int)
     for i, spec in enumerate(pic_specs, start=1):
         m = _slice(sample.masks[spec.name], axis, idx)
@@ -79,7 +86,6 @@ def _shade_levels(ax, sample: RegionSample, report: LoadReport, axis: str):
         levels=[i - 0.5 for i in range(1, len(pic_specs) + 2)],
         colors=colors, alpha=0.85, zorder=1,
     )
-    return colors
 
 
 def _draw_panel(ax, sample: RegionSample, report: LoadReport,
@@ -91,9 +97,10 @@ def _draw_panel(ax, sample: RegionSample, report: LoadReport,
         xlim = (d.x_min, d.x_max)
     if ylim is None:
         ylim = (d.z_min, d.z_max)
-    ax.set_xlim(*xlim)
+    # Sun on the LEFT: invert the x-axis so larger (sunward) x sits at the left.
+    ax.set_xlim(max(xlim), min(xlim))
     ax.set_ylim(*ylim)
-    ax.set_xlabel("X [Re]    (Sun ←)")
+    ax.set_xlabel("X_GSE [Re]    (Sun on the left)")
     ax.set_ylabel("Z [Re]")
     ax.set_title(title)
     ax.set_aspect("equal", adjustable="box")
@@ -104,10 +111,10 @@ def _draw_panel(ax, sample: RegionSample, report: LoadReport,
 
     xl = ax.get_xlim()
     yl = max(abs(ax.get_ylim()[0]), abs(ax.get_ylim()[1]))
-    xmp, ymp = _model_curve_user(shue_mp, cfg.solar_wind, xl, yl,
-                                 dipole_strength=cfg.dipole_strength)
-    xbs, ybs = _model_curve_user(jelinek_bs, cfg.solar_wind, xl, yl,
-                                 dipole_strength=cfg.dipole_strength)
+    xmp, ymp = _model_curve(shue_mp, cfg.solar_wind, xl, yl,
+                            dipole_strength=cfg.dipole_strength)
+    xbs, ybs = _model_curve(jelinek_bs, cfg.solar_wind, xl, yl,
+                            dipole_strength=cfg.dipole_strength)
     ax.plot(xmp, ymp, color="#b30000", lw=1.6, label="Magnetopause (Shue 1998)")
     ax.plot(xbs, ybs, color="#08306b", lw=1.6, label="Bow shock (Jelínek 2012)")
 
@@ -127,6 +134,9 @@ def _draw_panel(ax, sample: RegionSample, report: LoadReport,
         lines.append(f"Σ AMR PIC:           N = {report.amr_total.n_particles:.2e}")
         ref = report.uniform_reference
         lines.append(f"uniform {ref.dx_km:.0f} km PIC:   N = {ref.n_particles:.2e}")
+        # Tail side (low x, large -x) is the RIGHT half of the panel after
+        # inverting the axis — put the annotation there so it doesn't cover
+        # the dayside boundaries (which sit on the left).
         ax.text(0.98, 0.98, "\n".join(lines), transform=ax.transAxes,
                 va="top", ha="right", fontsize=8,
                 family="monospace",
@@ -135,16 +145,15 @@ def _draw_panel(ax, sample: RegionSample, report: LoadReport,
     ax.legend(loc="lower left", fontsize=8)
 
 
-def _dayside_zoom(report: LoadReport) -> tuple[tuple[float, float], tuple[float, float]]:
-    """Auto-determine a dayside zoom box around the MP and BS subsolar."""
+def _dayside_zoom(report: LoadReport):
     cfg = report.cfg
     from .models import subsolar_mp, subsolar_bs
     r_mp = subsolar_mp(cfg.solar_wind, dipole_strength=cfg.dipole_strength)
     r_bs = subsolar_bs(cfg.solar_wind, dipole_strength=cfg.dipole_strength)
-    # Subsolar point in user frame is at x_user = -r_mp.  Frame the zoom so
-    # we see Earth + sunward shell + a bit of magnetosphere.
-    x_min = -1.6 * r_bs       # ~4 Re beyond the BS standoff
-    x_max = max(8.0, 0.7 * r_mp)
+    # Dayside is +x. Show from a few Re past Earth into the dayside out to
+    # ~4 Re beyond the BS standoff.
+    x_min = -max(8.0, 0.7 * r_mp)
+    x_max = 1.6 * r_bs
     half = 1.5 * r_bs
     return (x_min, x_max), (-half, half)
 

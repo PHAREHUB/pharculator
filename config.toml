@@ -28,17 +28,17 @@ dipole_strength = 1.0
 
 [particle]
 ppc = 100
-bytes_per_particle = 56     # 3 pos + 3 vel + 1 charge, all float64
+bytes_per_particle = 76     # PHARE per-particle memory footprint
 sec_per_particle_per_step = 10e-9   # single-thread cost model
 
 [domain]
-# User convention: -x toward the Sun. All values in Earth radii.
-x_min = -30.0
-x_max = 150.0
-y_min = -30.0
-y_max = 30.0
-z_min = -30.0
-z_max = 30.0
+# Standard GSE: +x toward the Sun, -x toward the tail. All values in Earth radii.
+x_min = -100.0
+x_max = 50.0
+y_min = -50.0
+y_max = 50.0
+z_min = -50.0
+z_max = 50.0
 
 [solar_wind]
 n_cm3 = 5.0

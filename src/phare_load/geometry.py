@@ -1,7 +1,8 @@
 """Domain geometry and per-level region sampling, driven by a Config.
 
-User convention: -x toward the Sun. Internally we use GSE (+x toward Sun)
-for the MP/BS models, with x_gse = -x_user.
+Coordinates are standard GSE: +x toward the Sun, -x toward the tail.
+The Shue and Jelinek models use the same convention, so no remapping is
+needed between user space and the models.
 """
 
 from __future__ import annotations
@@ -18,7 +19,7 @@ class RegionSample:
     masks: dict[str, np.ndarray]   # one boolean mask per PIC level (by name)
     volumes_Re3: dict[str, float]
     dV_Re3: float
-    x_user: np.ndarray
+    x: np.ndarray                  # GSE x (positive toward Sun)
     y: np.ndarray
     z: np.ndarray
 
@@ -31,10 +32,9 @@ def sample_regions(cfg: Config) -> RegionSample:
     zs = np.arange(d.z_min, d.z_max + dx, dx)
     X, Y, Z = np.meshgrid(xs, ys, zs, indexing="ij")
 
-    Xg = -X
-    r = np.sqrt(Xg * Xg + Y * Y + Z * Z)
+    r = np.sqrt(X * X + Y * Y + Z * Z)
     with np.errstate(invalid="ignore", divide="ignore"):
-        cos_t = np.where(r > 0, Xg / r, 1.0)
+        cos_t = np.where(r > 0, X / r, 1.0)
     cos_t = np.clip(cos_t, -1.0, 1.0)
     theta = np.arccos(cos_t)
     r_mp = shue_mp(theta, cfg.solar_wind, dipole_strength=cfg.dipole_strength)
@@ -61,7 +61,7 @@ def sample_regions(cfg: Config) -> RegionSample:
         else:  # pragma: no cover
             raise AssertionError(spec.region)
         if cfg.dayside_only:
-            m = m & (Xg >= 0)
+            m = m & (X >= 0)
         if prev_pic_mask is not None:
             m = m & prev_pic_mask
         masks[spec.name] = m
@@ -70,5 +70,5 @@ def sample_regions(cfg: Config) -> RegionSample:
 
     return RegionSample(
         masks=masks, volumes_Re3=volumes,
-        dV_Re3=dV, x_user=X, y=Y, z=Z,
+        dV_Re3=dV, x=X, y=Y, z=Z,
     )
