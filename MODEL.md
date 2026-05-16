@@ -105,7 +105,7 @@ $$
 Permet de simuler une magnétosphère plus petite ou plus grande qu'à
 champ terrestre nominal. À l'équilibre de pression subsolaire,
 $r_{MP} \propto M_E^{1/3}$ → on multiplie $r_{MP}$ et $r_{BS}$ par
-$(\text{dipole\_strength})^{1/3}$.
+$(\text{dipole-strength})^{1/3}$.
 
 - `dipole_strength = 1.0` → Terre actuelle (MP subsolaire ≈ 10 Re)
 - `dipole_strength = 0.5` → magnétosphère ~21% plus petite
@@ -153,7 +153,7 @@ Après calcul du masque brut:
 ### 4.4 Volume
 
 $$
-V_{n} \,[\mathrm{Re}^3] = (\text{nb cellules masquées}) \times (\text{sample\_dx\_re})^3
+V_{n} \,[\mathrm{Re}^3] = (\text{nb cellules masquées}) \times (\text{sample-dx-re})^3
 $$
 
 C'est une approximation de Riemann; sa précision augmente quand
@@ -232,7 +232,7 @@ $$
 Pour un niveau $n$:
 
 $$
-N_\text{steps}(n) = N_\text{finest} \times \text{steps\_per\_finest}(n)
+N_\text{steps}(n) = N_\text{finest} \times \text{steps-per-finest}(n)
 $$
 
 où `steps_per_finest(n)` $= r^{-(N-1-n)}$ représente la fraction de pas
@@ -283,7 +283,7 @@ $$
 ### 7.2 Coût single-thread
 
 $$
-\text{CPU·s} = \text{pushes} \times \text{sec\_per\_particle\_per\_step}
+\text{CPU·s} = \text{pushes} \times \text{sec-per-particle-per-step}
 $$
 
 avec `sec_per_particle_per_step = 10 ns` par défaut — valeur typique
@@ -349,7 +349,7 @@ référence + ratio (AMR/uniform ou uniform/AMR selon le signe).
 Décomposition du coût par pas du niveau le plus fin:
 
 $$
-w_n = \text{steps\_per\_finest}(n) \times N_\text{part}(n)
+w_n = \text{steps-per-finest}(n) \times N_\text{part}(n)
 $$
 
 Indique quel niveau domine. Dans la config par défaut, **L4 fait
