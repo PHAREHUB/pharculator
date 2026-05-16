@@ -34,6 +34,35 @@ Or with your own:
 .venv/bin/python -m phare_load.cli --config my_setup.toml --out my_plot.png
 ```
 
+## Interactive web app (no install)
+
+A browser version of the estimator (Streamlit + Pyodide, via
+[stlite](https://stlite.net)) lives in `docs/` and is served by GitHub Pages
+at:
+
+> **https://pharehub.github.io/pharculator/**
+
+It runs entirely client-side — Python executes in your browser via
+WebAssembly, no server is needed. First load is ~30 MB (numpy, scipy,
+scikit-image, plotly, Streamlit runtime), cached for subsequent visits.
+
+To enable / re-enable GitHub Pages on this repository: Settings → Pages →
+Source = `Deploy from a branch`, Branch = `main`, Folder = `/docs`.
+
+After changing anything in `src/phare_load/`, sync the copy used by the web
+app:
+
+```bash
+bash docs/sync_source.sh
+```
+
+To preview the web app locally without deploying:
+
+```bash
+cd docs && python -m http.server 8000
+# open http://localhost:8000/
+```
+
 ## 3D visualization (optional)
 
 Install the extra deps once:

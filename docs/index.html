@@ -1,0 +1,66 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1" />
+  <title>PHARE load estimator — interactive</title>
+  <meta name="description"
+        content="Interactive estimator for compute/memory load of PHARE global magnetosphere PIC runs." />
+  <link rel="stylesheet"
+        href="https://cdn.jsdelivr.net/npm/@stlite/browser@0.85.1/build/style.css" />
+  <style>
+    html, body { margin: 0; padding: 0; height: 100%; font-family: system-ui, sans-serif; }
+    #root { height: 100%; }
+    .loading { padding: 2rem; max-width: 720px; margin: 4rem auto; color: #333; }
+    .loading h1 { margin-top: 0; font-weight: 600; }
+    .loading .hint { color: #666; font-size: 0.95rem; line-height: 1.5; }
+    .loading code { background: #f3f3f3; padding: 0.1em 0.3em; border-radius: 3px; }
+  </style>
+</head>
+<body>
+  <div id="root">
+    <div class="loading">
+      <h1>PHARE load estimator</h1>
+      <p class="hint">
+        Loading Python runtime in your browser
+        (≈25–35 MB on first visit, cached afterwards).
+        This page runs entirely client-side via
+        <a href="https://stlite.net" target="_blank" rel="noopener">stlite</a> +
+        <a href="https://pyodide.org" target="_blank" rel="noopener">Pyodide</a>.
+        No data leaves your machine.
+      </p>
+      <p class="hint">
+        Source: <a href="https://github.com/PHAREHUB/pharculator">github.com/PHAREHUB/pharculator</a> ·
+        Model: <a href="https://github.com/PHAREHUB/pharculator/blob/main/MODEL.md">MODEL.md</a>
+      </p>
+    </div>
+  </div>
+
+  <script type="module">
+    import { mount } from "https://cdn.jsdelivr.net/npm/@stlite/browser@0.85.1/build/stlite.js";
+
+    mount(
+      {
+        requirements: [
+          "numpy",
+          "matplotlib",
+          "plotly",
+          "scikit-image",
+        ],
+        entrypoint: "streamlit_app.py",
+        files: {
+          "streamlit_app.py":           { url: "./streamlit_app.py" },
+          "phare_load/__init__.py":     { url: "./phare_load/__init__.py" },
+          "phare_load/config.py":       { url: "./phare_load/config.py" },
+          "phare_load/geometry.py":     { url: "./phare_load/geometry.py" },
+          "phare_load/load.py":         { url: "./phare_load/load.py" },
+          "phare_load/models.py":       { url: "./phare_load/models.py" },
+          "phare_load/plotting.py":     { url: "./phare_load/plotting.py" },
+          "phare_load/plotting3d.py":   { url: "./phare_load/plotting3d.py" },
+        },
+      },
+      document.getElementById("root")
+    );
+  </script>
+</body>
+</html>
