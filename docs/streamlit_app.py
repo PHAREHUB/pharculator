@@ -173,6 +173,15 @@ with st.sidebar:
                                       min_value=1.0, max_value=1000.0,
                                       value=10.0, step=1.0)
 
+    st.header("3D view")
+    cutaway = st.checkbox("Y<0 cutaway", value=True,
+                          help="Hide the Y≥0 half so nested shells are visible.")
+    preset = st.selectbox("camera preset",
+                          options=["oblique", "front", "tail", "top"],
+                          index=0)
+    show_2d = st.checkbox("Render 2D meridional figure", value=True,
+                         help="Disable to skip matplotlib (faster live updates).")
+
 
 # ---------------------------------------------------------------------------
 # Main — level editor
@@ -265,94 +274,107 @@ def build_config() -> Config:
 
 
 # ---------------------------------------------------------------------------
-# Run estimator
+# Live estimator (no Run button — the script reruns on every widget change)
 # ---------------------------------------------------------------------------
 
-run = st.button("Run estimator", type="primary")
 
-if run:
+@st.cache_data(max_entries=8, show_spinner=False)
+def _cached_report(cfg_key: bytes):
+    """Cached wrapper around build_report.
+
+    `cfg_key` is a pickle of the Config; passing the pickle bytes makes
+    Streamlit's cache key cheap and stable. Returns the (report, sample)
+    pair so subsequent renders that only change display options (camera
+    preset, cutaway flag) reuse the geometry computation.
+    """
+    import pickle
+    cfg = pickle.loads(cfg_key)
+    return build_report(cfg)
+
+
+try:
+    cfg = build_config()
+except Exception as exc:
+    st.error(f"Configuration error: {exc}")
+    st.code(traceback.format_exc())
+    st.stop()
+
+with st.spinner("Computing…"):
+    import pickle
     try:
-        cfg = build_config()
-        with st.spinner("Building report and figures…"):
-            report, sample = build_report(cfg)
+        report, sample = _cached_report(pickle.dumps(cfg))
     except Exception as exc:
-        st.error(f"Configuration error: {exc}")
+        st.error(f"Run failed: {exc}")
         st.code(traceback.format_exc())
         st.stop()
 
-    # ----- numeric results --------------------------------------------------
-    st.subheader("Cost summary")
-    pic_work = sum(L.steps_per_finest * L.n_particles * report.n_steps_target
-                   for L in report.pic_levels)
-    amr_sec = pic_work * cfg.sec_per_particle_per_step
-    amr_ram = sum(L.ram_bytes for L in report.pic_levels)
+# ----- numeric results ------------------------------------------------------
+st.subheader("Cost summary")
+pic_work = sum(L.steps_per_finest * L.n_particles * report.n_steps_target
+               for L in report.pic_levels)
+amr_sec = pic_work * cfg.sec_per_particle_per_step
+amr_ram = sum(L.ram_bytes for L in report.pic_levels)
 
-    cols = st.columns(1 + len(report.uniform_references))
-    cols[0].metric("AMR — CPU·h", f"{amr_sec/3600/1e6:,.2f} M",
-                   help=f"{amr_sec/3600:,.0f} CPU·h total")
-    cols[0].metric("AMR — RAM (PIC)", f"{amr_ram/2**50:,.2f} PB")
-    for i, ref in enumerate(report.uniform_references, start=1):
-        ref_work = (report.n_steps_target * ref.steps_per_finest
-                    * ref.n_particles)
-        ref_sec = ref_work * cfg.sec_per_particle_per_step
-        cols[i].metric(f"Uniform {ref.dx_km:.1f} km — CPU·h",
-                       f"{ref_sec/3600/1e6:,.2f} M",
-                       delta=f"{ref_sec/amr_sec:.2f} × AMR")
-        cols[i].metric(f"Uniform {ref.dx_km:.1f} km — RAM",
-                       f"{ref.ram_bytes/2**50:,.2f} PB",
-                       delta=f"{ref.ram_bytes/amr_ram:.2f} × AMR")
+cols = st.columns(1 + len(report.uniform_references))
+cols[0].metric("AMR — CPU·h", f"{amr_sec/3600/1e6:,.2f} M",
+               help=f"{amr_sec/3600:,.0f} CPU·h total")
+cols[0].metric("AMR — RAM (PIC)", f"{amr_ram/2**50:,.2f} PB")
+for i, ref in enumerate(report.uniform_references, start=1):
+    ref_work = (report.n_steps_target * ref.steps_per_finest
+                * ref.n_particles)
+    ref_sec = ref_work * cfg.sec_per_particle_per_step
+    cols[i].metric(f"Uniform {ref.dx_km:.1f} km — CPU·h",
+                   f"{ref_sec/3600/1e6:,.2f} M",
+                   delta=f"{ref_sec/amr_sec:.2f} × AMR")
+    cols[i].metric(f"Uniform {ref.dx_km:.1f} km — RAM",
+                   f"{ref.ram_bytes/2**50:,.2f} PB",
+                   delta=f"{ref.ram_bytes/amr_ram:.2f} × AMR")
 
-    # ----- per-level table --------------------------------------------------
-    st.subheader("Per-level breakdown")
-    N = report.n_steps_target
-    rows = []
-    for L in report.levels:
-        n_steps = N * L.steps_per_finest
-        pushes = n_steps * L.n_particles if L.is_pic else 0.0
-        rows.append({
-            "level": L.name,
-            "kind": L.kind.upper(),
-            "dx [km]": L.dx_km,
-            "N_cells": L.n_cells,
-            "N_part": L.n_particles,
-            "RAM [TB]": L.ram_bytes / 2**40,
-            "steps": n_steps,
-            "pushes": pushes,
-            "% of AMR per-step work": (
-                100.0 * L.steps_per_finest * L.n_particles
-                / (pic_work / N) if pic_work > 0 else 0.0),
-        })
-    st.dataframe(rows, hide_index=True)
+# ----- per-level table ------------------------------------------------------
+st.subheader("Per-level breakdown")
+N = report.n_steps_target
+rows = []
+for L in report.levels:
+    n_steps = N * L.steps_per_finest
+    pushes = n_steps * L.n_particles if L.is_pic else 0.0
+    rows.append({
+        "level": L.name,
+        "kind": L.kind.upper(),
+        "dx [km]": L.dx_km,
+        "N_cells": L.n_cells,
+        "N_part": L.n_particles,
+        "RAM [TB]": L.ram_bytes / 2**40,
+        "steps": n_steps,
+        "pushes": pushes,
+        "% of AMR per-step work": (
+            100.0 * L.steps_per_finest * L.n_particles
+            / (pic_work / N) if pic_work > 0 else 0.0),
+    })
+st.dataframe(rows, hide_index=True)
 
-    # ----- subsolar reminders ---------------------------------------------
-    ds = cfg.dipole_strength
-    st.caption(
-        f"Subsolar MP = {subsolar_mp(cfg.solar_wind, ds):.2f} Re   |   "
-        f"Subsolar BS = {subsolar_bs(cfg.solar_wind, ds):.2f} Re   |   "
-        f"P_dyn = {cfg.solar_wind.Pdyn_nPa:.3f} nPa   |   "
-        f"dipole_strength = {ds:.3g}")
+# ----- subsolar reminders ---------------------------------------------------
+ds = cfg.dipole_strength
+st.caption(
+    f"Subsolar MP = {subsolar_mp(cfg.solar_wind, ds):.2f} Re   |   "
+    f"Subsolar BS = {subsolar_bs(cfg.solar_wind, ds):.2f} Re   |   "
+    f"P_dyn = {cfg.solar_wind.Pdyn_nPa:.3f} nPa   |   "
+    f"dipole_strength = {ds:.3g}")
 
-    # ----- 2D figure --------------------------------------------------------
+# ----- 2D figure ------------------------------------------------------------
+if show_2d:
     st.subheader("Meridional + dayside view")
     with st.spinner("Rendering 2D figure…"):
         fig2d = build_figure(report, sample)
     st.pyplot(fig2d, clear_figure=True)
 
-    # ----- 3D figure --------------------------------------------------------
-    st.subheader("3D view (Y<0 cutaway)")
-    cutaway = st.checkbox("Y<0 cutaway", value=True,
-                          help="Hide the Y≥0 half so nested shells are visible.")
-    preset = st.selectbox("camera preset",
-                          options=["oblique", "front", "tail", "top"],
-                          index=0)
-    with st.spinner("Rendering 3D figure…"):
-        try:
-            fig3d = build_figure_3d(report, sample,
-                                    cutaway_y=cutaway,
-                                    camera_preset=preset)
-            st.plotly_chart(fig3d, use_container_width=True)
-        except Exception as exc:
-            st.warning(f"3D rendering failed: {exc}")
-            st.code(traceback.format_exc())
-else:
-    st.info("Set parameters in the sidebar and click **Run estimator**.")
+# ----- 3D figure ------------------------------------------------------------
+st.subheader(f"3D view{' (Y<0 cutaway)' if cutaway else ''}")
+with st.spinner("Rendering 3D figure…"):
+    try:
+        fig3d = build_figure_3d(report, sample,
+                                cutaway_y=cutaway,
+                                camera_preset=preset)
+        st.plotly_chart(fig3d, use_container_width=True)
+    except Exception as exc:
+        st.warning(f"3D rendering failed: {exc}")
+        st.code(traceback.format_exc())
