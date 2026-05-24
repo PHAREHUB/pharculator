@@ -58,6 +58,25 @@ bz_nt = 0.0
 #   boundaries = ["mp", "bs"]  (default: both surfaces)
 #   boundaries = ["mp"]        (magnetopause only)
 #   boundaries = ["bs"]        (bow shock only)
+#
+# Angular patches (band only) — restrict the band to (θ, φ) sub-regions where
+# dynamical features actually develop, so fine levels don't refine the whole
+# surface. Conventions:
+#   θ = zenith from +X_GSE: 0° = subsolar, 90° = terminator, 180° = anti-solar.
+#   φ = azimuth around +X_GSE: 0° = +Z (north), 90° = +Y (dusk),
+#       180° = -Z (south), 270° = -Y (dawn). Arcs do not wrap.
+#
+# Single-patch shorthand (most common):
+#   theta_max_deg = 30
+#   # plus optional theta_min_deg, phi_ranges_deg = [[60, 120], [240, 300]]
+#
+# Multi-patch union (when a single rectangle is not enough):
+#   [[levels.patches]]
+#   theta_max_deg = 60                # subsolar cap, all φ
+#   [[levels.patches]]
+#   theta_min_deg = 60                # flank band, dawn and dusk only
+#   theta_max_deg = 120
+#   phi_ranges_deg = [[60, 120], [240, 300]]
 
 [[levels]]
 name = "L0"
@@ -79,6 +98,15 @@ dx_di = 0.4
 region = "band"
 band_re = 1.5
 boundaries = ["mp"]
+# L2 refines the same physics regions as L3/L4 but with a wider band:
+#   - subsolar reconnection / FTE cap (all φ)
+#   - dawn + dusk KH flanks
+[[levels.patches]]
+theta_max_deg = 60
+[[levels.patches]]
+theta_min_deg = 60
+theta_max_deg = 120
+phi_ranges_deg = [[60, 120], [240, 300]]
 
 [[levels]]
 name = "L3"
@@ -87,6 +115,17 @@ dx_di = 0.2
 region = "band"
 band_re = 0.5
 boundaries = ["mp"]
+# L3 = L2 patches + cusp-adjacent MP indentation (high-latitude φ arcs).
+[[levels.patches]]
+theta_max_deg = 60
+[[levels.patches]]
+theta_min_deg = 60
+theta_max_deg = 120
+phi_ranges_deg = [[60, 120], [240, 300]]
+[[levels.patches]]
+theta_min_deg = 40
+theta_max_deg = 80
+phi_ranges_deg = [[0, 20], [160, 200], [340, 360]]
 
 [[levels]]
 name = "L4"
@@ -95,3 +134,10 @@ dx_di = 0.1
 region = "band"
 band_re = 0.25
 boundaries = ["mp"]
+# L4 = subsolar reconnection cap + KH flanks (no cusp-adjacent at 0.1 δᵢ).
+[[levels.patches]]
+theta_max_deg = 30
+[[levels.patches]]
+theta_min_deg = 60
+theta_max_deg = 120
+phi_ranges_deg = [[60, 120], [240, 300]]

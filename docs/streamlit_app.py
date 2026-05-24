@@ -17,7 +17,7 @@ from dataclasses import asdict
 import streamlit as st
 
 from phare_load.config import (
-    Config, LevelSpec, Domain, SolarWind,
+    Config, LevelSpec, Patch, Domain, SolarWind,
 )
 from phare_load.load import build_report
 from phare_load.models import subsolar_mp, subsolar_bs
@@ -44,23 +44,62 @@ st.caption(
 # Default level templates
 # ---------------------------------------------------------------------------
 
+# Patch columns (theta_min/max, phi_ranges) restrict band levels to angular
+# sub-regions where dynamical features develop. The data editor only exposes
+# the single-patch shorthand; multi-patch *unions* are applied as a sidebar
+# preset that overrides the editor θ/φ columns for L2-L4 (see
+# PHYSICS_PATCHES_L2_L4 below).
 DEFAULT_LEVELS = [
     {"name": "L0", "kind": "mhd", "dx_di": 1.6,
      "region": "full",  "pad_re": 0.0, "band_re": 0.0,
-     "boundaries": "mp,bs"},
+     "boundaries": "mp,bs",
+     "theta_min_deg": None, "theta_max_deg": None, "phi_ranges_deg": ""},
     {"name": "L1", "kind": "pic", "dx_di": 0.8,
      "region": "shell", "pad_re": 3.0, "band_re": 0.0,
-     "boundaries": "mp,bs"},
+     "boundaries": "mp,bs",
+     "theta_min_deg": None, "theta_max_deg": None, "phi_ranges_deg": ""},
     {"name": "L2", "kind": "pic", "dx_di": 0.4,
      "region": "band",  "pad_re": 0.0, "band_re": 1.5,
-     "boundaries": "mp"},
+     "boundaries": "mp",
+     "theta_min_deg": None, "theta_max_deg": None, "phi_ranges_deg": ""},
     {"name": "L3", "kind": "pic", "dx_di": 0.2,
      "region": "band",  "pad_re": 0.0, "band_re": 0.5,
-     "boundaries": "mp"},
+     "boundaries": "mp",
+     "theta_min_deg": None, "theta_max_deg": 120.0, "phi_ranges_deg": ""},
     {"name": "L4", "kind": "pic", "dx_di": 0.1,
      "region": "band",  "pad_re": 0.0, "band_re": 0.25,
-     "boundaries": "mp"},
+     "boundaries": "mp",
+     "theta_min_deg": None, "theta_max_deg": 30.0, "phi_ranges_deg": ""},
 ]
+
+
+# Physics-informed multi-patch presets. When the sidebar checkbox is on,
+# these override the editor's θ/φ columns for the named levels — the
+# resulting band mask is the union of patches AND'd with the radial band.
+#
+# Patch set per level:
+#   - Subsolar reconnection / FTE cap: θ ≤ 60° (L2/L3), θ ≤ 30° (L4); all φ.
+#   - Dawn + dusk KH flanks: 60° ≤ θ ≤ 120°; φ ∈ [60°, 120°] ∪ [240°, 300°].
+# L3 also gets cusp-adjacent MP indentation arcs (matches config.toml).
+PHYSICS_PATCHES_L2_L4: dict[str, list[Patch]] = {
+    "L2": [
+        Patch(theta_max_deg=60.0),
+        Patch(theta_min_deg=60.0, theta_max_deg=120.0,
+              phi_ranges_deg=[(60.0, 120.0), (240.0, 300.0)]),
+    ],
+    "L3": [
+        Patch(theta_max_deg=60.0),
+        Patch(theta_min_deg=60.0, theta_max_deg=120.0,
+              phi_ranges_deg=[(60.0, 120.0), (240.0, 300.0)]),
+        Patch(theta_min_deg=40.0, theta_max_deg=80.0,
+              phi_ranges_deg=[(0.0, 20.0), (160.0, 200.0), (340.0, 360.0)]),
+    ],
+    "L4": [
+        Patch(theta_max_deg=30.0),
+        Patch(theta_min_deg=60.0, theta_max_deg=120.0,
+              phi_ranges_deg=[(60.0, 120.0), (240.0, 300.0)]),
+    ],
+}
 
 
 # ---------------------------------------------------------------------------
@@ -150,6 +189,13 @@ with st.sidebar:
                                          min_value=2.0, max_value=8.0,
                                          value=4.0, step=1.0)
     dayside_only = st.checkbox("dayside-only PIC", value=True)
+    apply_physics_patches = st.checkbox(
+        "Physics-informed L2–L4 patches",
+        value=True,
+        help="Override L2/L3/L4 angular patches with a union of "
+             "subsolar-reconnection cap + dawn/dusk KH flanks "
+             "(plus cusp-adjacent MP for L3). Uncheck to use the "
+             "single-patch θ/φ columns in the editor verbatim.")
     sample_dx_re = st.slider("probe lattice dx [Re]",
                              min_value=0.25, max_value=2.0, value=1.0,
                              step=0.25,
@@ -308,7 +354,15 @@ with st.sidebar:
 st.subheader("AMR levels")
 st.caption("Coarsest first. The last entry is the finest and anchors dt. "
            "PIC levels are nested by construction: each PIC mask is "
-           "intersected with the previous PIC level's mask.")
+           "intersected with the previous PIC level's mask. "
+           "**Patches** (θ/φ columns, band only) restrict a level to angular "
+           "sub-regions — fine levels should target where dynamical features "
+           "develop (e.g. subsolar reconnection θ≤30°, KH flanks 60°≤θ≤120° "
+           "on dawn/dusk φ arcs), not the entire surface. "
+           "When **Physics-informed L2–L4 patches** is enabled in the "
+           "sidebar (default), L2/L3/L4 are overridden with a multi-patch "
+           "union (subsolar cap ∪ KH flanks, plus cusp-adjacent on L3) and "
+           "the θ/φ columns for those rows are ignored.")
 
 if "levels_df" not in st.session_state:
     st.session_state.levels_df = list(DEFAULT_LEVELS)
@@ -332,6 +386,17 @@ edited_levels = st.data_editor(
             "band_re [Re]", min_value=0.0, max_value=20.0, step=0.25),
         "boundaries": st.column_config.TextColumn(
             "boundaries", help="comma-sep of 'mp','bs' (used by region='band')"),
+        "theta_min_deg": st.column_config.NumberColumn(
+            "θ_min [°]", min_value=0.0, max_value=180.0, step=5.0,
+            help="band only: lower zenith angle bound (0° = subsolar)."),
+        "theta_max_deg": st.column_config.NumberColumn(
+            "θ_max [°]", min_value=0.0, max_value=180.0, step=5.0,
+            help="band only: upper zenith angle bound (180° = anti-solar)."),
+        "phi_ranges_deg": st.column_config.TextColumn(
+            "φ arcs [°]",
+            help="band only: comma-separated arcs like '60-120, 240-300' "
+                 "(dusk + dawn flanks). φ=0° is +Z (north), 90° dusk, "
+                 "180° south, 270° dawn. Blank = full ring."),
     },
     key="levels_editor",
 )
@@ -353,6 +418,31 @@ def _parse_refs(s: str) -> list[float]:
     return out
 
 
+def _parse_phi_ranges(s: str) -> list[tuple[float, float]] | None:
+    s = (s or "").strip()
+    if not s:
+        return None
+    arcs: list[tuple[float, float]] = []
+    for tok in s.replace(";", ",").split(","):
+        tok = tok.strip()
+        if not tok:
+            continue
+        if "-" not in tok:
+            raise ValueError(f"phi arc must be 'min-max', got {tok!r}.")
+        a_str, b_str = tok.split("-", 1)
+        arcs.append((float(a_str), float(b_str)))
+    return arcs or None
+
+
+def _opt_float(v) -> float | None:
+    if v is None or v == "":
+        return None
+    try:
+        return float(v)
+    except (TypeError, ValueError):
+        return None
+
+
 def _row_to_level(row: dict) -> LevelSpec:
     bounds = [b.strip() for b in str(row.get("boundaries", "mp,bs")).split(",")
               if b.strip()]
@@ -364,6 +454,9 @@ def _row_to_level(row: dict) -> LevelSpec:
         pad_re=float(row.get("pad_re") or 0.0),
         band_re=float(row.get("band_re") or 0.0),
         boundaries=bounds or ["mp", "bs"],
+        theta_min_deg=_opt_float(row.get("theta_min_deg")),
+        theta_max_deg=_opt_float(row.get("theta_max_deg")),
+        phi_ranges_deg=_parse_phi_ranges(str(row.get("phi_ranges_deg") or "")),
     )
 
 
@@ -388,6 +481,17 @@ def build_config() -> Config:
     cfg.solar_wind = SolarWind(n_cm3=sw_n, v_kms=sw_v, bz_nt=sw_bz)
     cfg.levels = [_row_to_level(r) for r in edited_levels
                   if r and r.get("name") and r.get("dx_di")]
+    if apply_physics_patches:
+        for L in cfg.levels:
+            preset = PHYSICS_PATCHES_L2_L4.get(L.name)
+            if preset is None or L.region != "band":
+                continue
+            # Drop the single-patch shorthand on this level so `patches`
+            # is the sole source of angular bounds (mutual-exclusion rule).
+            L.theta_min_deg = None
+            L.theta_max_deg = None
+            L.phi_ranges_deg = None
+            L.patches = list(preset)
     return cfg
 
 
