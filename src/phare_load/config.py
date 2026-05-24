@@ -23,6 +23,23 @@ LevelKind = Literal["mhd", "pic"]
 
 
 @dataclass
+class Patch:
+    """One angular patch on a band surface (region == 'band').
+
+    A patch restricts the radial band to a (θ, φ) rectangle:
+    - θ = zenith angle from +X_GSE (0° = subsolar, 180° = anti-solar).
+    - φ = azimuth around +X_GSE: 0° = +Z (north), 90° = +Y (dusk),
+      180° = -Z (south), 270° = -Y (dawn).
+
+    None means unbounded on that axis. phi_ranges_deg is a list of arcs;
+    they do not wrap, so dawn+dusk needs two entries.
+    """
+    theta_min_deg: float | None = None
+    theta_max_deg: float | None = None
+    phi_ranges_deg: list[tuple[float, float]] | None = None
+
+
+@dataclass
 class LevelSpec:
     name: str
     kind: LevelKind            # "mhd" (no particles) or "pic"
@@ -35,6 +52,40 @@ class LevelSpec:
     # For region == "band": which surface(s) the band hugs. Each entry must
     # be "mp" or "bs". Defaults to both.
     boundaries: list[str] = field(default_factory=lambda: ["mp", "bs"])
+    # Optional angular patch bounds (region == "band" only).
+    # Two equivalent forms — pick the simpler one for your use case:
+    #
+    # 1. Single-patch shorthand: set any of theta_min_deg, theta_max_deg,
+    #    phi_ranges_deg directly on the level. Equivalent to one Patch.
+    # 2. Multi-patch union: set `patches = [Patch(...), Patch(...), ...]`.
+    #    The band mask is restricted to the *union* of these patches.
+    #
+    # If `patches` is set, the top-level theta_*/phi_* fields must be unset.
+    # If neither is set, the band covers the full surface (current behavior).
+    theta_min_deg: float | None = None
+    theta_max_deg: float | None = None
+    phi_ranges_deg: list[tuple[float, float]] | None = None
+    patches: list[Patch] | None = None
+
+    def resolved_patches(self) -> list[Patch]:
+        """Normalize the two shorthand forms to a single list of Patches.
+
+        Returns [] when no angular restriction is requested (full band)."""
+        if self.patches is not None:
+            if (self.theta_min_deg is not None or self.theta_max_deg is not None
+                    or self.phi_ranges_deg is not None):
+                raise ValueError(
+                    f"Level {self.name}: use either top-level theta_*/phi_* "
+                    "OR `patches`, not both.")
+            return list(self.patches)
+        if (self.theta_min_deg is None and self.theta_max_deg is None
+                and not self.phi_ranges_deg):
+            return []
+        return [Patch(
+            theta_min_deg=self.theta_min_deg,
+            theta_max_deg=self.theta_max_deg,
+            phi_ranges_deg=self.phi_ranges_deg,
+        )]
 
     def resolve_dx_km(self, delta_i_km: float) -> float:
         if (self.dx_km is None) == (self.dx_di is None):
@@ -164,6 +215,24 @@ class Config:
         return (1.0 / self.dt_ratio_per_level) ** idx_from_finest
 
 
+def _level_from_dict(raw: dict) -> LevelSpec:
+    raw = dict(raw)
+    phi = raw.get("phi_ranges_deg")
+    if phi is not None:
+        raw["phi_ranges_deg"] = [tuple(p) for p in phi]
+    patches = raw.get("patches")
+    if patches is not None:
+        normalized = []
+        for p in patches:
+            p = dict(p)
+            pphi = p.get("phi_ranges_deg")
+            if pphi is not None:
+                p["phi_ranges_deg"] = [tuple(r) for r in pphi]
+            normalized.append(Patch(**p))
+        raw["patches"] = normalized
+    return LevelSpec(**raw)
+
+
 def load_config(path: str | Path) -> Config:
     with open(path, "rb") as f:
         raw = tomllib.load(f)
@@ -195,10 +264,36 @@ def load_config(path: str | Path) -> Config:
         raise ValueError(
             f"Config {path} has no [[levels]] sections — "
             "at least one level is required.")
-    cfg.levels = [LevelSpec(**L) for L in raw["levels"]]
+    cfg.levels = [_level_from_dict(L) for L in raw["levels"]]
 
     _validate(cfg)
     return cfg
+
+
+def _validate_patch(level_name: str, p: Patch) -> None:
+    tmin = p.theta_min_deg if p.theta_min_deg is not None else 0.0
+    tmax = p.theta_max_deg if p.theta_max_deg is not None else 180.0
+    if not (0.0 <= tmin <= 180.0 and 0.0 <= tmax <= 180.0):
+        raise ValueError(
+            f"Level {level_name}: patch theta_*_deg must be in [0, 180].")
+    if tmin > tmax:
+        raise ValueError(
+            f"Level {level_name}: patch theta_min_deg must be <= theta_max_deg.")
+    if p.phi_ranges_deg is not None:
+        for rng in p.phi_ranges_deg:
+            if len(rng) != 2:
+                raise ValueError(
+                    f"Level {level_name}: phi_ranges_deg entries must be "
+                    f"(min, max) pairs, got {rng!r}.")
+            a, b = float(rng[0]), float(rng[1])
+            if not (0.0 <= a <= 360.0 and 0.0 <= b <= 360.0):
+                raise ValueError(
+                    f"Level {level_name}: phi_ranges_deg values must be in "
+                    f"[0, 360], got {rng!r}.")
+            if a >= b:
+                raise ValueError(
+                    f"Level {level_name}: phi range ({a}, {b}) must have "
+                    "min < max; wrap-around must be split in two.")
 
 
 def _validate(cfg: Config) -> None:
@@ -222,6 +317,18 @@ def _validate(cfg: Config) -> None:
                     raise ValueError(
                         f"Level {L.name}: boundaries entries must be 'mp' or 'bs',"
                         f" got {b!r}.")
+            if L.patches is not None and (
+                L.theta_min_deg is not None or L.theta_max_deg is not None
+                or L.phi_ranges_deg is not None
+            ):
+                raise ValueError(
+                    f"Level {L.name}: use either top-level theta_*/phi_* OR "
+                    "`patches`, not both.")
+            if L.patches is not None and not L.patches:
+                raise ValueError(
+                    f"Level {L.name}: `patches` must be non-empty when set.")
+            for p in L.resolved_patches():
+                _validate_patch(L.name, p)
         L.resolve_dx_km(cfg.delta_i_km)  # raises if both/neither given
     # dx must be non-increasing as we descend the level list (coarsest first)
     for prev, nxt in zip(cfg.levels, cfg.levels[1:]):

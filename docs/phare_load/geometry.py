@@ -39,6 +39,10 @@ def sample_regions(cfg: Config) -> RegionSample:
     theta = np.arccos(cos_t)
     r_mp = shue_mp(theta, cfg.solar_wind, dipole_strength=cfg.dipole_strength)
     r_bs = jelinek_bs(theta, cfg.solar_wind, dipole_strength=cfg.dipole_strength)
+    # φ = azimuth around +X_GSE: 0° = +Z (north), 90° = +Y (dusk),
+    # 180° = -Z (south), 270° = -Y (dawn). Wrapped to [0, 360).
+    phi = np.mod(np.rad2deg(np.arctan2(Y, Z)), 360.0)
+    theta_deg = np.rad2deg(theta)
 
     dV = dx ** 3
     masks: dict[str, np.ndarray] = {}
@@ -58,6 +62,22 @@ def sample_regions(cfg: Config) -> RegionSample:
                 m = m | (np.abs(r - r_mp) <= spec.band_re)
             if "bs" in spec.boundaries:
                 m = m | (np.abs(r - r_bs) <= spec.band_re)
+            patches = spec.resolved_patches()
+            if patches:
+                patch_m = np.zeros_like(theta, dtype=bool)
+                for p in patches:
+                    pm = np.ones_like(theta, dtype=bool)
+                    if p.theta_min_deg is not None:
+                        pm = pm & (theta_deg >= p.theta_min_deg)
+                    if p.theta_max_deg is not None:
+                        pm = pm & (theta_deg <= p.theta_max_deg)
+                    if p.phi_ranges_deg:
+                        phi_m = np.zeros_like(theta, dtype=bool)
+                        for a, b in p.phi_ranges_deg:
+                            phi_m = phi_m | ((phi >= a) & (phi <= b))
+                        pm = pm & phi_m
+                    patch_m = patch_m | pm
+                m = m & patch_m
         else:  # pragma: no cover
             raise AssertionError(spec.region)
         if cfg.dayside_only:
